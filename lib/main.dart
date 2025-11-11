@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:smartpayan/backgrounds/background_engine.dart';
+import 'pages/dashboard_page.dart';
+import 'pages/alerts_page.dart';
+import 'pages/settings_page.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -9,7 +13,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
       home: HomeScreen(),
     );
   }
@@ -25,12 +30,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  final List<Widget> _pages = [
-    DashboardPage(),
-    ControlsPage(),
-    SettingsPage(),
-  ];
-
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -39,70 +38,92 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('SmartPayan'),
-        backgroundColor: Colors.blue[800],
+    //temp sensor values
+    int light = 100; 
+    bool rain = false;
+    int humidity = 30;
+    double temperature = 15;
+
+    final List<Widget> _pages = [
+      DashboardPage(
+        light: light,
+        rain: rain,
+        humidity: humidity,
+        temperature: temperature,
       ),
+      AlertsPage(),
+      SettingsPage(),
+    ];
 
-      body: _pages[_selectedIndex],
+    return BackgroundEngine(
+      light: light,
+      rain: rain,
+      humidity: humidity,
+      sensorsOnline: true,
+      // Wrap entire Scaffold in Builder to get currentMode from BackgroundProvider
+      child: Builder(
+        builder: (context) {
+          final mode = BackgroundProvider.of(context).mode;
 
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.control_camera),
-            label: 'Controls',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
-      ),
-    );
-  }
-}
+          // Dynamic AppBar & BottomNavigationBar colors
+          Color appBarColor;
+          Color navBarColor;
 
-class DashboardPage extends StatelessWidget {
-  const DashboardPage({super.key});
+          switch (mode) {
+            case BackgroundMode.night:
+              appBarColor = Colors.blueGrey.withOpacity(0.4);
+              navBarColor = Colors.black.withOpacity(0.3);
+              break;
+            case BackgroundMode.rainy:
+              appBarColor = Colors.blueGrey.withOpacity(0.4);
+              navBarColor = Colors.blueGrey.withOpacity(0.3);
+              break;
+            case BackgroundMode.sunrise:
+              appBarColor = Colors.blueGrey.withOpacity(0.35);
+              navBarColor = Colors.white.withOpacity(0.3);
+              break;
+            case BackgroundMode.day:
+              appBarColor = Colors.white.withOpacity(0.15);
+              navBarColor = Colors.white.withOpacity(0.12);
+              break;
+            case BackgroundMode.cloudy:
+              appBarColor = Colors.grey.withOpacity(0.3);
+              navBarColor = Colors.grey.withOpacity(0.25);
+              break;
+          }
 
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text('Dashboard Page',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-}
-
-class ControlsPage extends StatelessWidget {
-  const ControlsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text('Controls Page',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-}
-
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text('Settings Page',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          return Scaffold(
+            // Make scaffold background transparent so background image is visible
+            backgroundColor: Colors.transparent,
+            appBar: AppBar(
+              title: const Text("SmartPayan"),
+              backgroundColor: appBarColor,
+              elevation: 0,
+            ),
+            body: _pages[_selectedIndex],
+            bottomNavigationBar: BottomNavigationBar(
+              backgroundColor: navBarColor,
+              selectedItemColor: Colors.white,
+              unselectedItemColor: Colors.white70,
+              currentIndex: _selectedIndex,
+              onTap: _onItemTapped,
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.dashboard),
+                  label: "Dashboard",
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.notifications),
+                  label: "Alerts",
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.settings),
+                  label: "Settings",
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
