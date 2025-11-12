@@ -59,11 +59,11 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-    - assets/images/gradient_cloudy.png
-    - assets/images/gradient_day.png
-    - assets/images/gradient_night.png
-    - assets/images/gradient_rainyday.png
-    - assets/images/gradient_sunrise.png
+    - assets/images/1.png
+    - assets/images/2.png
+    - assets/images/3.png
+    - assets/images/4.png
+    - assets/images/5.png
     
     
 

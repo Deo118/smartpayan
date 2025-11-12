@@ -103,29 +103,29 @@ class BackgroundEngine extends StatelessWidget {
     // Fallback when ESP32 data unavailable
     if (!sensorsOnline) {
       final hour = DateTime.now().hour;
-      if (hour < 6) return "gradient_night.png";
-      if (hour < 8) return "gradient_sunrise.png";
-      if (hour < 18) return "gradient_day.png";
-      return "gradient_night.png";
+      if (hour < 6) return "1.png";
+      if (hour < 8) return "3.png";
+      if (hour < 18) return "4.png";
+      return "1.png";
     }
 
     if (rain) {
       return light < 200
-          ? "gradient_night.png"    // Rain + night
-          : "gradient_rainyday.png"; // Rain + day
+          ? "1.png"    // Rain + night
+          : "2.png"; // Rain + day
     }
 
     // Night
-    if (light < 200) return "gradient_night.png";
+    if (light < 200) return "1.png";
 
     // Dawn/Dusk
-    if (light < 500) return "gradient_sunrise.png";
+    if (light < 500) return "3.png";
 
     // Humid/Misty
-    if (humidity > 70) return "gradient_cloudy.png";
+    if (humidity > 70) return "5.png";
 
     // Bright day
-    return "gradient_day.png";
+    return "4.png";
   }
 }
 
@@ -136,6 +136,7 @@ class _StarParticles extends StatefulWidget {
   @override
   State<_StarParticles> createState() => _StarParticlesState();
 }
+
 
 class _StarParticlesState extends State<_StarParticles>
     with SingleTickerProviderStateMixin {
@@ -180,6 +181,7 @@ class _StarParticlesState extends State<_StarParticles>
   }
 }
 
+//stars
 class _StarPainter extends CustomPainter {
   final List<Offset> stars;
   final List<double> brightness;
@@ -209,6 +211,7 @@ class _StarPainter extends CustomPainter {
   bool shouldRepaint(_) => true;
 }
 
+//rain
 class _RainParticles extends StatefulWidget {
   const _RainParticles();
 

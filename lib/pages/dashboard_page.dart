@@ -45,7 +45,7 @@ class _DashboardPageState extends State<DashboardPage> {
                       fontWeight: FontWeight.bold,
                       color: (mode == BackgroundMode.night || mode == BackgroundMode.rainy)
                           ? Colors.white
-                          : Colors.black,
+                          : Colors.white,
                       shadows: [
                         Shadow(
                           blurRadius: 6,
@@ -173,7 +173,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           },
                           min: 0,
                           max: 1,
-                          divisions: 10,
+                          divisions: 2,
                           activeColor: Colors.greenAccent,
                           inactiveColor: Colors.white30,
                         ),

@@ -39,10 +39,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     //temp sensor values
-    int light = 100; 
+    int light = 100; //0 to 1k
     bool rain = false;
     int humidity = 30;
-    double temperature = 15;
+    double temperature = 8;
 
     final List<Widget> _pages = [
       DashboardPage(
