@@ -103,29 +103,29 @@ class BackgroundEngine extends StatelessWidget {
     // Fallback when ESP32 data unavailable
     if (!sensorsOnline) {
       final hour = DateTime.now().hour;
-      if (hour < 6) return "1.png";
-      if (hour < 8) return "3.png";
-      if (hour < 18) return "4.png";
-      return "1.png";
+      if (hour < 6) return "night.png";
+      if (hour < 8) return "sunrise.png";
+      if (hour < 18) return "day.png";
+      return "night.png";
     }
 
     if (rain) {
       return light < 200
-          ? "1.png"    // Rain + night
-          : "2.png"; // Rain + day
+          ? "night.png"    // Rain + night
+          : "rainyday.png"; // Rain + day
     }
 
     // Night
-    if (light < 200) return "1.png";
+    if (light < 200) return "night.png";
 
     // Dawn/Dusk
-    if (light < 500) return "3.png";
+    if (light < 500) return "sunrise.png";
 
     // Humid/Misty
-    if (humidity > 70) return "5.png";
+    if (humidity > 70) return "cloudy.png";
 
     // Bright day
-    return "4.png";
+    return "day.png";
   }
 }
 
