@@ -22,7 +22,7 @@ class _InitializationPageState extends State<InitializationPage> {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.black,
       body: Center(
         child: CircularProgressIndicator(color: Colors.white),
       ),

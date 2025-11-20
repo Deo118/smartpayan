@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:smartpayan/backgrounds/background_engine.dart';
+import 'package:firebase_core/firebase_core.dart';
+
+//Pages
 import 'pages/dashboard_page.dart';
 import 'pages/alerts_page.dart';
 import 'pages/settings_page.dart';
 import 'pages/init_page.dart';
 import 'pages/login_page.dart';
+import 'pages/create_account.dart';
+import 'pages/setup_device.dart';
 
-void main() {
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  print("Firebase initialized");
   runApp(const MyApp());
 }
 
@@ -21,14 +30,16 @@ class MyApp extends StatelessWidget {
       routes: {
         '/init': (context) => InitializationPage(),
         '/login': (context) => LoginPage(),
-        '/home': (context) => HomeScreen(),
+        '/create-account': (context) => CreateAccountPage(),
+        '/setup-device': (context) => SetupDevicePage(),
       }
     );
   }
 }
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String deviceId;
+  const HomeScreen({super.key, required this.deviceId});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -59,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
         temperature: temperature,
       ),
       AlertsPage(),
-      SettingsPage(),
+      SettingsPage(deviceId: widget.deviceId),
     ];
 
     return BackgroundEngine(

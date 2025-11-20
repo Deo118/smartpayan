@@ -9,33 +9,45 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final TextEditingController nameController = TextEditingController();
-  final TextEditingController macController = TextEditingController();
+  final TextEditingController usernameController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
 
   bool loading = false;
   String errorMessage = "";
 
-  Future<void> loginDevice() async {
+  Future<void> loginUser() async {
     setState(() {
       loading = true;
       errorMessage = "";
     });
 
-    String name = nameController.text.trim();
-    String mac = macController.text.trim();
+    String username = usernameController.text.trim();
+    String password = passwordController.text.trim();
 
-    // Query Firestore
+    if (username.isEmpty || password.isEmpty) {
+      setState(() {
+        errorMessage = "Please fill in all fields.";
+        loading = false;
+      });
+      return;
+    }
+
+    // Query Firestore for username & password
     final result = await FirebaseFirestore.instance
-        .collection('devices')
-        .where('name', isEqualTo: name)
-        .where('mac', isEqualTo: mac)
+        .collection('users')
+        .where('username', isEqualTo: username)
+        .where('password', isEqualTo: password)
         .get();
 
     if (result.docs.isNotEmpty) {
-      // SUCCESS → Go to dashboard
-      Navigator.pushReplacementNamed(context, '/home');
+      // SUCCESS → Go to setup_device page with username as argument
+      Navigator.pushReplacementNamed(
+        context,
+        '/setup-device',
+        arguments: username,
+      );
     } else {
-      setState(() => errorMessage = "Device not found. Check inputs.");
+      setState(() => errorMessage = "Invalid username or password.");
     }
 
     setState(() => loading = false);
@@ -44,7 +56,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white.withOpacity(0.85),
+      backgroundColor: Colors.black.withOpacity(0.85),
       body: Padding(
         padding: const EdgeInsets.all(28),
         child: Column(
@@ -61,16 +73,17 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 30),
 
             TextField(
-              controller: nameController,
-              decoration: _inputStyle("Device Name"),
+              controller: usernameController,
+              decoration: _inputStyle("Username"),
               style: const TextStyle(color: Colors.white),
             ),
             const SizedBox(height: 16),
 
             TextField(
-              controller: macController,
-              decoration: _inputStyle("Device MAC Address"),
+              controller: passwordController,
+              decoration: _inputStyle("Password"),
               style: const TextStyle(color: Colors.white),
+              obscureText: true,
             ),
             const SizedBox(height: 16),
 
@@ -81,11 +94,24 @@ class _LoginPageState extends State<LoginPage> {
             const SizedBox(height: 20),
 
             ElevatedButton(
-              onPressed: loading ? null : loginDevice,
+              onPressed: loading ? null : loginUser,
               child: loading
                   ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text("Save & Connect"),
-            )
+                  : const Text("Login"),
+            ),
+
+            const SizedBox(height: 12),
+
+            TextButton(
+              onPressed: () {
+                // Only navigate to Create Account page
+                Navigator.pushNamed(context, '/create-account');
+              },
+              child: const Text(
+                "Don't have an account? Create Account",
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
           ],
         ),
       ),
