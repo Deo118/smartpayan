@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1011491680056",
+    "project_id": "smartpayan-f7ea7",
+    "storage_bucket": "smartpayan-f7ea7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1011491680056:android:1f7ddc6ea8dda63653dbcd",
+        "android_client_info": {
+          "package_name": "com.group8.smartpayan"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBIG8urm0pDX1y0MTNt7V7zUOZhiJghshk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
