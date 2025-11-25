@@ -1,32 +1,49 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_database/firebase_database.dart';
 import '../backgrounds/background_engine.dart';
 
 class DashboardPage extends StatefulWidget {
-  final int light;        
-  final bool rain;
-  final int humidity;
-  final double temperature;
+  final String deviceId;
+  final Map<String, dynamic> sensorData;  // Added: Sensor data from HomeScreen
+  final bool isOnline;  // Added: Online status from HomeScreen
 
   const DashboardPage({
     super.key,
-    required this.light,
-    required this.rain,
-    required this.humidity,
-    required this.temperature,
-    });
+    required this.deviceId,
+    required this.sensorData,
+    required this.isOnline,
+  });
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  // Slider and mode state
   double sliderValue = 0.5; // 0 = retracted, 1 = extended
   bool isAuto = true; // Auto/Manual mode
+
+  DatabaseReference? commandRef;
+
+  @override
+  void initState() {
+    super.initState();
+    commandRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/commands');
+  }
+
+  void sendCommand(String key, dynamic value) {
+    commandRef?.update({key: value});
+  }
 
   @override
   Widget build(BuildContext context) {
     final mode = BackgroundProvider.of(context).mode;
+
+    // Use sensor data from props (passed from HomeScreen)
+    int light = widget.sensorData['lightLevel'] ?? 600;
+    bool rain = widget.sensorData['rain'] ?? false;
+    int humidity = widget.sensorData['humidity'] ?? 70;
+    double temperature = widget.sensorData['temperature'] ?? 25.0;
+    bool isOnline = widget.isOnline;
 
     return Stack(
       children: [
@@ -55,6 +72,10 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
 
+                  // Online status
+                  if (!isOnline)
+                    const Text("Device Offline - Showing cached data", style: TextStyle(color: Colors.red)),
+
                   const SizedBox(height: 20),
 
                   // STATUS CARD
@@ -65,8 +86,8 @@ class _DashboardPageState extends State<DashboardPage> {
                         _statusTile(
                           icon: Icons.cloud,
                           label: "Rain",
-                          value: widget.rain ? "Detected" : "None",
-                          color: widget.rain ? Colors.red : Colors.greenAccent,
+                          value: rain ? "Detected" : "None",
+                          color: rain ? Colors.red : Colors.greenAccent,
                         ),
 
                         // Auto/Manual mode next to rain status
@@ -82,6 +103,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                 setState(() {
                                   isAuto = !isAuto;
                                 });
+                                sendCommand('autoMode', isAuto);  // Send to RTDB
                               },
                             ),
                             Text(
@@ -107,19 +129,19 @@ class _DashboardPageState extends State<DashboardPage> {
                         _sensorTile(
                           icon: Icons.wb_sunny,
                           label: "Light Level",
-                          value: "${widget.light} lx",
+                          value: "$light lx",
                         ),
                         _divider(),
                         _sensorTile(
                           icon: Icons.water_drop,
                           label: "Humidity",
-                          value: "${widget.humidity}%",
+                          value: "$humidity%",
                         ),
                         _divider(),
                         _sensorTile(
                           icon: Icons.thermostat,
                           label: "Temperature",
-                          value: "${widget.temperature.toStringAsFixed(1)}°C",
+                          value: "${temperature.toStringAsFixed(1)}°C",
                         ),
                       ],
                     ),
@@ -147,6 +169,7 @@ class _DashboardPageState extends State<DashboardPage> {
                                 setState(() {
                                   isAuto = !isAuto;
                                 });
+                                sendCommand('autoMode', isAuto);
                               },
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -168,8 +191,8 @@ class _DashboardPageState extends State<DashboardPage> {
                           onChanged: (val) {
                             setState(() {
                               sliderValue = val;
-                              // TODO: send value to ESP32
                             });
+                            sendCommand('clotheslinePosition', val);  // Send to RTDB
                           },
                           min: 0,
                           max: 1,
