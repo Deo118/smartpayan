@@ -9,7 +9,7 @@ enum BackgroundMode {
   sunrise,
 }
 
-class BackgroundProvider extends InheritedWidget{
+class BackgroundProvider extends InheritedWidget {
   final BackgroundMode mode;
 
   const BackgroundProvider({
@@ -24,10 +24,9 @@ class BackgroundProvider extends InheritedWidget{
 
   @override
   bool updateShouldNotify(covariant BackgroundProvider oldWidget) {
-    return oldWidget.mode !=mode;
+    return oldWidget.mode != mode;
   }
 }
-
 
 class BackgroundEngine extends StatelessWidget {
   final int light;        
@@ -51,24 +50,24 @@ class BackgroundEngine extends StatelessWidget {
 
     BackgroundMode currentMode;
 
-    if (!sensorsOnline){
+    if (!sensorsOnline) {
       final hour = DateTime.now().hour;
-      if (hour < 6){
+      if (hour < 6) {
         currentMode = BackgroundMode.night;
-      } else if (hour < 8){
+      } else if (hour < 8) {
         currentMode = BackgroundMode.sunrise;
-      } else if (hour < 18){
+      } else if (hour < 18) {
         currentMode = BackgroundMode.day;
       } else {
         currentMode = BackgroundMode.night;
       }
-    } else if (rain){
+    } else if (rain) {
       currentMode = light < 200 ? BackgroundMode.night : BackgroundMode.rainy;
     } else if (light < 200) {
       currentMode = BackgroundMode.night;
-    } else if (light < 500){
+    } else if (light < 500) {
       currentMode = BackgroundMode.sunrise;
-    } else if (humidity > 70){
+    } else if (humidity > 70) {
       currentMode = BackgroundMode.cloudy;
     } else {
       currentMode = BackgroundMode.day;
@@ -136,7 +135,6 @@ class _StarParticles extends StatefulWidget {
   @override
   State<_StarParticles> createState() => _StarParticlesState();
 }
-
 
 class _StarParticlesState extends State<_StarParticles>
     with SingleTickerProviderStateMixin {

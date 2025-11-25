@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:smartpayan/backgrounds/background_engine.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_database/firebase_database.dart';  // Added for RTDB listener in HomeScreen
 
-//Pages
+// Pages
 import 'pages/dashboard_page.dart';
 import 'pages/alerts_page.dart';
 import 'pages/settings_page.dart';
@@ -10,7 +11,6 @@ import 'pages/init_page.dart';
 import 'pages/login_page.dart';
 import 'pages/create_account.dart';
 import 'pages/setup_device.dart';
-
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,15 +31,20 @@ class MyApp extends StatelessWidget {
         '/init': (context) => InitializationPage(),
         '/login': (context) => LoginPage(),
         '/create-account': (context) => CreateAccountPage(),
-        '/setup-device': (context) => SetupDevicePage(),
-      }
+        '/setup-device': (context) {
+          final userDocId = ModalRoute.of(context)!.settings.arguments as String;
+          return SetupDevicePage(userDocId: userDocId);
+        }
+      },
     );
   }
 }
 
 class HomeScreen extends StatefulWidget {
+  final String userDocId;
   final String deviceId;
-  const HomeScreen({super.key, required this.deviceId});
+
+  const HomeScreen({super.key, required this.userDocId, required this.deviceId});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -47,6 +52,39 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
+
+  // Lifted sensor data from DashboardPage (now managed here for sharing with BackgroundEngine)
+  Map<String, dynamic> sensorData = {
+    'lightLevel': 600,
+    'rain': false,
+    'humidity': 70,
+    'temperature': 25.0,
+  };
+  bool isOnline = false;
+  DatabaseReference? sensorRef;
+
+  @override
+  void initState() {
+    super.initState();
+    // RTDB listener moved here from DashboardPage
+    sensorRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/sensorData');
+    sensorRef!.onValue.listen((event) {
+      if (event.snapshot.value != null) {
+        setState(() {
+          sensorData = Map<String, dynamic>.from(event.snapshot.value as Map);
+          isOnline = true;
+        });
+      } else {
+        setState(() => isOnline = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    sensorRef?.onValue.drain();
+    super.dispose();
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -56,34 +94,30 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    //temp sensor values
-    int light = 100; //0 to 1k
-    bool rain = true;
-    int humidity = 30;
-    double temperature = 8;
+    // Extract values for props (to pass to BackgroundEngine and DashboardPage)
+    int light = sensorData['lightLevel'] ?? 600;
+    bool rain = sensorData['rain'] ?? false;
+    int humidity = sensorData['humidity'] ?? 70;
 
     final List<Widget> _pages = [
       DashboardPage(
-        light: light,
-        rain: rain,
-        humidity: humidity,
-        temperature: temperature,
+        deviceId: widget.deviceId,
+        sensorData: sensorData,  // Pass sensor data as props
+        isOnline: isOnline,
       ),
       AlertsPage(),
-      SettingsPage(deviceId: widget.deviceId),
+      SettingsPage(deviceId: widget.deviceId, userDocId: widget.userDocId),
     ];
 
     return BackgroundEngine(
-      light: light,
+      light: light,  // Pass dynamic sensor values for real-time background updates
       rain: rain,
       humidity: humidity,
-      sensorsOnline: true,
-      // Wrap entire Scaffold in Builder to get currentMode from BackgroundProvider
+      sensorsOnline: isOnline,
       child: Builder(
         builder: (context) {
           final mode = BackgroundProvider.of(context).mode;
 
-          // Dynamic AppBar & BottomNavigationBar colors
           Color appBarColor;
           Color navBarColor;
 
@@ -111,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
           }
 
           return Scaffold(
-            // Make scaffold background transparent so background image is visible
             backgroundColor: Colors.transparent,
             appBar: AppBar(
               title: const Text("SmartPayan"),
