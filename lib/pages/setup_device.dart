@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:smartpayan/main.dart';
+import 'package:smartpayan/pages/login_page.dart';
 
 class SetupDevicePage extends StatefulWidget {
-  const SetupDevicePage({super.key});
+  final String userDocId;
+
+  const SetupDevicePage({super.key, required this.userDocId});
 
   @override
   State<SetupDevicePage> createState() => _SetupDevicePageState();
@@ -35,8 +38,9 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
 
   // Check if device already exists for this user
   final existing = await FirebaseFirestore.instance
-      .collection('devices')
-      .where('username', isEqualTo: username)
+      .collection('users')
+      .doc(widget.userDocId)
+      .collection("deviceInfo")
       .where('mac', isEqualTo: mac)
       .get();
 
@@ -49,14 +53,17 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   }
 
   // Save device info AND get the new ID
-  final doc = await FirebaseFirestore.instance.collection('devices').add({
-    'username': username,
+  final doc = await FirebaseFirestore.instance
+  .collection('users')
+  .doc(widget.userDocId)
+  .collection("deviceInfo")
+  .add({
     'name': deviceName,
     'mac': mac,
     'createdAt': FieldValue.serverTimestamp(),
   });
 
-  final String deviceId = doc.id; // <-- IMPORTANT
+  final String deviceId = doc.id; 
 
   setState(() => loading = false);
 
@@ -64,7 +71,9 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   Navigator.pushReplacement(
     context,
     MaterialPageRoute(
-      builder: (context) => HomeScreen(deviceId: deviceId),
+      builder: (context) => HomeScreen(
+        userDocId: widget.userDocId,
+        deviceId: deviceId),
     ),
   );
 }
@@ -73,7 +82,6 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   @override
   Widget build(BuildContext context) {
     // Get username passed from LoginPage
-    final username = ModalRoute.of(context)!.settings.arguments as String;
 
     return Scaffold(
       backgroundColor: Colors.black.withOpacity(0.85),
@@ -113,7 +121,7 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
             const SizedBox(height: 20),
 
             ElevatedButton(
-              onPressed: loading ? null : () => saveDevice(username),
+              onPressed: loading ? null : () => saveDevice(widget.userDocId),
               child: loading
                   ? const CircularProgressIndicator(color: Colors.white)
                   : const Text("Save & Connect"),

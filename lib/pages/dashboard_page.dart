@@ -74,7 +74,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           children: [
                             IconButton(
                               icon: Icon(
-                                Icons.settings, // example icons
+                                Icons.settings, 
                                 color: Colors.white,
                                 size: 32,
                               ),

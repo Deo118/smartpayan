@@ -31,15 +31,20 @@ class MyApp extends StatelessWidget {
         '/init': (context) => InitializationPage(),
         '/login': (context) => LoginPage(),
         '/create-account': (context) => CreateAccountPage(),
-        '/setup-device': (context) => SetupDevicePage(),
+        '/setup-device': (context) {
+          final userDocId = ModalRoute.of(context)!.settings.arguments as String;
+          return SetupDevicePage(userDocId: userDocId);
+        } 
       }
     );
   }
 }
 
 class HomeScreen extends StatefulWidget {
+  final String userDocId;
   final String deviceId;
-  const HomeScreen({super.key, required this.deviceId});
+
+  const HomeScreen({super.key, required this.userDocId, required this.deviceId});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -57,10 +62,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     //temp sensor values
-    int light = 100; //0 to 1k
-    bool rain = true;
-    int humidity = 30;
-    double temperature = 8;
+    int light = 600; //0 to 1k
+    bool rain = false;
+    int humidity = 70;
+    double temperature = 40;
 
     final List<Widget> _pages = [
       DashboardPage(
@@ -70,7 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
         temperature: temperature,
       ),
       AlertsPage(),
-      SettingsPage(deviceId: widget.deviceId),
+      SettingsPage(deviceId: widget.deviceId, userDocId: widget.userDocId,),
     ];
 
     return BackgroundEngine(

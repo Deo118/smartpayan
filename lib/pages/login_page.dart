@@ -40,11 +40,12 @@ class _LoginPageState extends State<LoginPage> {
         .get();
 
     if (result.docs.isNotEmpty) {
-      // SUCCESS → Go to setup_device page with username as argument
+      final userDocId = result.docs.first.id;
+
       Navigator.pushReplacementNamed(
         context,
         '/setup-device',
-        arguments: username,
+        arguments: userDocId,
       );
     } else {
       setState(() => errorMessage = "Invalid username or password.");

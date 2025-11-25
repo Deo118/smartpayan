@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class SettingsPage extends StatelessWidget {
+  final String userDocId;
   final String deviceId; // or MAC address
 
-  const SettingsPage({super.key, required this.deviceId});
+  const SettingsPage({super.key, required this.userDocId, required this.deviceId});
 
   Future<void> deleteDevice(BuildContext context) async {
     try {
       // Delete the device document from Firestore
       await FirebaseFirestore.instance
-          .collection('devices')
+          .collection('users')
+          .doc(userDocId)
+          .collection('deviceInfo')
           .doc(deviceId)
           .delete();
 
@@ -60,7 +63,7 @@ class SettingsPage extends StatelessWidget {
           );
         },
         child: const Text("Delete Device"),
-        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+        style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.red),
       ),
     );
   }
