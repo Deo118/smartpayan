@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../widgets/back_button.dart';
 
 class CreateAccountPage extends StatefulWidget {
   const CreateAccountPage({super.key});
@@ -42,7 +43,6 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       return;
     }
 
-    // Check if username already exists
     final existing = await FirebaseFirestore.instance
         .collection('users')
         .where('username', isEqualTo: username)
@@ -56,7 +56,6 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
       return;
     }
 
-    // Create new account
     await FirebaseFirestore.instance.collection('users').add({
       'username': username,
       'password': password,
@@ -65,66 +64,89 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
 
     setState(() => loading = false);
 
-    // Navigate back to login page
-    Navigator.pop(context);
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black.withOpacity(0.85),
-      body: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              "Create Account",
-              style: TextStyle(
-                fontSize: 28,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Centered Form
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "Create Account",
+                    style: TextStyle(
+                      fontSize: 28,
+                      color: Color(0xFF1e1d50),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+
+                  TextField(
+                    controller: usernameController,
+                    decoration: _inputStyle("Username"),
+                    style: const TextStyle(color: Color(0xFF1e1d50)),
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    controller: passwordController,
+                    decoration: _inputStyle("Password"),
+                    style: const TextStyle(color: Color(0xFF1e1d50)),
+                    obscureText: true,
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    controller: confirmPasswordController,
+                    decoration: _inputStyle("Confirm Password"),
+                    style: const TextStyle(color: Color(0xFF1e1d50)),
+                    obscureText: true,
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (errorMessage.isNotEmpty)
+                    Text(errorMessage,
+                        style: const TextStyle(color: Colors.redAccent)),
+                  const SizedBox(height: 20),
+
+                  ElevatedButton(
+                    onPressed: loading ? null : createAccount,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1e1d50),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 50,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                    ),
+                    child: loading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text(
+                            "Create Account",
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 30),
+          ),
 
-            TextField(
-              controller: usernameController,
-              decoration: _inputStyle("Username"),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-
-            TextField(
-              controller: passwordController,
-              decoration: _inputStyle("Password"),
-              style: const TextStyle(color: Colors.white),
-              obscureText: true,
-            ),
-            const SizedBox(height: 16),
-
-            TextField(
-              controller: confirmPasswordController,
-              decoration: _inputStyle("Confirm Password"),
-              style: const TextStyle(color: Colors.white),
-              obscureText: true,
-            ),
-            const SizedBox(height: 16),
-
-            if (errorMessage.isNotEmpty)
-              Text(errorMessage,
-                  style: const TextStyle(color: Colors.redAccent)),
-
-            const SizedBox(height: 20),
-
-            ElevatedButton(
-              onPressed: loading ? null : createAccount,
-              child: loading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text("Create Account"),
-            ),
-          ],
-        ),
+          // Overlayed Back Button
+          const BackButtonWidget(),
+        ],
       ),
     );
   }
@@ -132,12 +154,12 @@ class _CreateAccountPageState extends State<CreateAccountPage> {
   InputDecoration _inputStyle(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Colors.white70),
-      enabledBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.white38),
+      labelStyle: const TextStyle(color: Color(0xFF1e1d50)),
+      enabledBorder: const UnderlineInputBorder(
+        borderSide: BorderSide(color: Color(0xFF1e1d50)),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.greenAccent),
+      focusedBorder: const UnderlineInputBorder(
+        borderSide: BorderSide(color: Colors.blueAccent),
       ),
     );
   }

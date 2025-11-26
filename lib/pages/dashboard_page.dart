@@ -4,8 +4,8 @@ import '../backgrounds/background_engine.dart';
 
 class DashboardPage extends StatefulWidget {
   final String deviceId;
-  final Map<String, dynamic> sensorData;  // Added: Sensor data from HomeScreen
-  final bool isOnline;  // Added: Online status from HomeScreen
+  final Map<String, dynamic> sensorData;  
+  final bool isOnline;  
 
   const DashboardPage({
     super.key,
@@ -19,8 +19,8 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  double sliderValue = 0.5; // 0 = retracted, 1 = extended
-  bool isAuto = true; // Auto/Manual mode
+  double sliderValue = 0.5; 
+  bool isAuto = true; 
 
   DatabaseReference? commandRef;
 

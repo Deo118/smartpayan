@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/gestures.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -12,8 +13,27 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController usernameController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
 
+  late TapGestureRecognizer _createAccountTap;
+
   bool loading = false;
   String errorMessage = "";
+
+  @override
+  void initState() {
+    super.initState();
+    _createAccountTap = TapGestureRecognizer()
+      ..onTap = () {
+        Navigator.pushNamed(context, '/create-account');
+      };
+  }
+
+  @override
+  void dispose() {
+    usernameController.dispose();
+    passwordController.dispose();
+    _createAccountTap.dispose();
+    super.dispose();
+  }
 
   Future<void> loginUser() async {
     setState(() {
@@ -32,7 +52,6 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    // Query Firestore for username & password
     final result = await FirebaseFirestore.instance
         .collection('users')
         .where('username', isEqualTo: username)
@@ -57,7 +76,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black.withOpacity(0.85),
+      backgroundColor: Colors.white,
       body: Padding(
         padding: const EdgeInsets.all(28),
         child: Column(
@@ -67,50 +86,71 @@ class _LoginPageState extends State<LoginPage> {
               "SmartPayan Login",
               style: TextStyle(
                 fontSize: 28,
-                color: Colors.white,
+                color: Color(0xFF1e1d50),
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 50),
 
             TextField(
               controller: usernameController,
               decoration: _inputStyle("Username"),
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: Color(0xFF1e1d50)),
             ),
             const SizedBox(height: 16),
 
             TextField(
               controller: passwordController,
               decoration: _inputStyle("Password"),
-              style: const TextStyle(color: Colors.white),
+              style: const TextStyle(color: Color(0xFF1e1d50)),
               obscureText: true,
             ),
             const SizedBox(height: 16),
 
             if (errorMessage.isNotEmpty)
-              Text(errorMessage,
-                  style: const TextStyle(color: Colors.redAccent)),
+              Text(
+                errorMessage,
+                style: const TextStyle(color: Colors.redAccent),
+              ),
 
             const SizedBox(height: 20),
 
             ElevatedButton(
               onPressed: loading ? null : loginUser,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1e1d50),   
+                foregroundColor: Colors.white,              
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 50,
+                  vertical: 10,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(25),  
+                ),
+              ),
               child: loading
                   ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text("Login"),
+                  : const Text("Login", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
+            const SizedBox(height: 20),
 
-            const SizedBox(height: 12),
-
-            TextButton(
-              onPressed: () {
-                // Only navigate to Create Account page
-                Navigator.pushNamed(context, '/create-account');
-              },
-              child: const Text(
-                "Don't have an account? Create Account",
-                style: TextStyle(color: Colors.white70),
+            RichText(
+              text: TextSpan(
+                text: "Don't have an account? ",
+                style: const TextStyle(
+                  color: Color(0xFF1e1d50),
+                  fontSize: 14,
+                ),
+                children: [
+                  TextSpan(
+                    text: "Create Account",
+                    style: const TextStyle(
+                      color: Color(0xFF007BFF),
+                      fontWeight: FontWeight.bold,
+                    ),
+                    recognizer: _createAccountTap,
+                  ),
+                ],
               ),
             ),
           ],
@@ -122,12 +162,12 @@ class _LoginPageState extends State<LoginPage> {
   InputDecoration _inputStyle(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Colors.white70),
-      enabledBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.white38),
+      labelStyle: const TextStyle(color: Color(0xFF1e1d50)),
+      enabledBorder: UnderlineInputBorder(
+        borderSide: const BorderSide(color: Color(0xFF1e1d50)),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.greenAccent),
+      focusedBorder: UnderlineInputBorder(
+        borderSide: const BorderSide(color: Colors.blueAccent),
       ),
     );
   }

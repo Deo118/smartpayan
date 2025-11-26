@@ -53,7 +53,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // Lifted sensor data from DashboardPage (now managed here for sharing with BackgroundEngine)
+  // Lifted sensor data from DashboardPage 
   Map<String, dynamic> sensorData = {
     'lightLevel': 600,
     'rain': false,
@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // RTDB listener moved here from DashboardPage
+    // RTDB listener 
     sensorRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/sensorData');
     sensorRef!.onValue.listen((event) {
       if (event.snapshot.value != null) {
@@ -147,7 +147,9 @@ class _HomeScreenState extends State<HomeScreen> {
           return Scaffold(
             backgroundColor: Colors.transparent,
             appBar: AppBar(
-              title: const Text("SmartPayan"),
+              title: const Text("SmartPayan", 
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+              ),
               backgroundColor: appBarColor,
               elevation: 0,
             ),

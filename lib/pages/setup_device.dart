@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
 import 'package:smartpayan/main.dart';
+import '../widgets/back_button.dart';
 
 class SetupDevicePage extends StatefulWidget {
   final String userDocId;
@@ -21,7 +22,7 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   String errorMessage = "";
   bool verifying = false;
 
-  void saveDevice() {  // Renamed from Future<void> to void, and removed async since no save here
+  void saveDevice() {
     setState(() {
       loading = true;
       errorMessage = "";
@@ -38,19 +39,17 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
       return;
     }
 
-    // Check if device already exists (optional, but keep for UX)
-    // Note: We can't check Firestore here since we're not saving yet. You could add a pre-check if needed.
-
     setState(() {
       loading = false;
       verifying = true;
     });
 
-    verifyMac(deviceName, mac);  // Pass deviceName and mac to verifyMac
+    verifyMac(deviceName, mac);
   }
 
   void verifyMac(String deviceName, String mac) {
-    DatabaseReference ref = FirebaseDatabase.instance.ref('devices/$mac/sensorData/macAddress');  // Fixed path: sensorData/macAddress
+    DatabaseReference ref =
+        FirebaseDatabase.instance.ref('devices/$mac/sensorData/macAddress');
     bool verified = false;
     StreamSubscription? subscription;
 
@@ -59,8 +58,6 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
       if (rtDbMac == mac) {
         verified = true;
         subscription?.cancel();
-
-        // Success: Now save to Firestore and navigate
         _saveToFirestoreAndNavigate(deviceName, mac);
       }
     });
@@ -70,7 +67,8 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
         subscription?.cancel();
         setState(() {
           verifying = false;
-          errorMessage = "MAC verification failed. Ensure ESP32 is online and sending data.";
+          errorMessage =
+              "MAC verification failed. Ensure ESP32 is online and sending data.";
         });
       }
     });
@@ -84,12 +82,11 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
           .collection("deviceInfo")
           .doc(mac)
           .set({
-            'name': deviceName,
-            'mac': mac,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
+        'name': deviceName,
+        'mac': mac,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
 
-      // Navigate to HomeScreen
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -110,51 +107,82 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black.withOpacity(0.85),
-      body: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              "Setup Device",
-              style: TextStyle(
-                fontSize: 28,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          // Centered Form
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "Setup Device",
+                    style: TextStyle(
+                      fontSize: 28,
+                      color: Color(0xFF1e1d50),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+
+                  TextField(
+                    controller: deviceNameController,
+                    decoration: _inputStyle("Device Name"),
+                    style: const TextStyle(color: Color(0xFF1e1d50)),
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    controller: macController,
+                    decoration: _inputStyle(
+                        "Device MAC Address (e.g., AA:BB:CC:DD:EE:FF)"),
+                    style: const TextStyle(color: Color(0xFF1e1d50)),
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (verifying)
+                    const Text(
+                      "Verifying MAC with ESP32...",
+                      style: TextStyle(color: Color(0xFF1e1d50)),
+                    ),
+                  if (errorMessage.isNotEmpty)
+                    Text(
+                      errorMessage,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                  const SizedBox(height: 20),
+
+                  ElevatedButton(
+                    onPressed: (loading || verifying) ? null : saveDevice,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1e1d50),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 50,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                    ),
+                    child: loading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text(
+                            "Save & Connect",
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 30),
+          ),
 
-            TextField(
-              controller: deviceNameController,
-              decoration: _inputStyle("Device Name"),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-
-            TextField(
-              controller: macController,
-              decoration: _inputStyle("Device MAC Address (e.g., AA:BB:CC:DD:EE:FF)"),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-
-            if (verifying)
-              const Text("Verifying MAC with ESP32...", style: TextStyle(color: Colors.yellow)),
-            if (errorMessage.isNotEmpty)
-              Text(errorMessage, style: const TextStyle(color: Colors.redAccent)),
-
-            const SizedBox(height: 20),
-
-            ElevatedButton(
-              onPressed: (loading || verifying) ? null : saveDevice,
-              child: loading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text("Save & Connect"),
-            ),
-          ],
-        ),
+          // Overlayed Back Button
+          const BackButtonWidget(),
+        ],
       ),
     );
   }
@@ -162,12 +190,12 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   InputDecoration _inputStyle(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Colors.white70),
-      enabledBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.white38),
+      labelStyle: const TextStyle(color: Color(0xFF1e1d50)),
+      enabledBorder: const UnderlineInputBorder(
+        borderSide: BorderSide(color: Color(0xFF1e1d50)),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.greenAccent),
+      focusedBorder: const UnderlineInputBorder(
+        borderSide: BorderSide(color: Colors.blueAccent),
       ),
     );
   }
