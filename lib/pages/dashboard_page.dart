@@ -21,6 +21,7 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   double sliderValue = 0.5;
   bool isAuto = true;
+  String? actionMessage; 
   DatabaseReference? commandRef;
 
   @override
@@ -35,6 +36,13 @@ class _DashboardPageState extends State<DashboardPage> {
     commandRef?.update({key: value});
   }
 
+  // Helper to get slider value from RTDB state
+  double _getSliderFromState(String? state) {
+    if (state == "extended") return 1.0;
+    if (state == "retracted") return 0.0;
+    return 0.5; // Default (though now unused)
+  }
+
   @override
   Widget build(BuildContext context) {
     final mode = BackgroundProvider.of(context).mode;
@@ -46,6 +54,20 @@ class _DashboardPageState extends State<DashboardPage> {
     int humidity = (data['humidity'] as num?)?.toInt() ?? 70;
     double temperature = (data['temperature'] as num?)?.toDouble() ?? 25.0;
     bool online = widget.isOnline;
+    String? clotheslineState = data['state'] as String?;
+
+    // Update slider based on mode
+    if (isAuto) {
+      sliderValue = _getSliderFromState(clotheslineState); // Follow RTDB in auto mode
+      actionMessage = null; // Clear message in auto mode
+    } else {
+      // In manual mode, slider value is user-controlled
+    }
+
+    // Clear message if RTDB state matches slider value
+    if (clotheslineState == (sliderValue == 1.0 ? "extended" : "retracted")) {
+      actionMessage = null;
+    }
 
     return Stack(
       children: [
@@ -176,14 +198,24 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                         Slider(
                           value: sliderValue,
-                          onChanged: (v) {
-                            setState(() => sliderValue = v);
-                            sendCommand('clotheslinePosition', v);
-                          },
+                          onChanged: isAuto
+                              ? null // Disabled in auto mode
+                              : (v) {
+                                  double newValue = v.roundToDouble();
+                                  setState(() {
+                                    sliderValue = newValue;
+                                    actionMessage = newValue == 1.0
+                                        ? "Clothesline extending..."
+                                        : "Clothesline retracting...";
+                                  });
+                                  sendCommand('clotheslinePosition', newValue);
+                                  // Debug: Print to console to verify
+                                  print("Slider changed to $newValue, message: $actionMessage");
+                                },
                           min: 0,
                           max: 1,
-                          divisions: 2,
-                          activeColor: Colors.greenAccent,
+                          divisions: 1, // Always 1: Only 0 and 1 allowed
+                          activeColor: isAuto ? Colors.grey : Colors.greenAccent, // Gray in auto
                           inactiveColor: Colors.white30,
                         ),
                         const Row(
@@ -195,6 +227,25 @@ class _DashboardPageState extends State<DashboardPage> {
                                 style: TextStyle(color: Colors.white70)),
                           ],
                         ),
+                        if (actionMessage != null) // Show message if present
+                          Container(
+                            margin: const EdgeInsets.only(top: 8),
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.5),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              actionMessage!,
+                              style: const TextStyle(
+                                color: Colors.yellowAccent,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                fontStyle: FontStyle.italic,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
                       ],
                     ),
                   ),
