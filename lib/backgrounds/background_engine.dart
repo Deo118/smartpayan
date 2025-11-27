@@ -18,8 +18,17 @@ class BackgroundProvider extends InheritedWidget {
     required super.child,
   });
 
+  static BackgroundProvider? maybeOf(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<BackgroundProvider>();
+  }
+
   static BackgroundProvider of(BuildContext context) {
-    return context.dependOnInheritedWidgetOfExactType<BackgroundProvider>()!;
+    final provider = maybeOf(context);
+    return provider ??
+        BackgroundProvider(
+          mode: BackgroundMode.day,
+          child: const SizedBox(),
+        );
   }
 
   @override
@@ -29,9 +38,9 @@ class BackgroundProvider extends InheritedWidget {
 }
 
 class BackgroundEngine extends StatelessWidget {
-  final int light;        
-  final bool rain;        
-  final int humidity;     
+  final int light;
+  final bool rain;
+  final int humidity;
   final bool sensorsOnline;
   final Widget? child;
 
@@ -48,33 +57,28 @@ class BackgroundEngine extends StatelessWidget {
   Widget build(BuildContext context) {
     final String image = _selectBackground();
 
-    BackgroundMode currentMode;
+    BackgroundMode mode;
 
     if (!sensorsOnline) {
       final hour = DateTime.now().hour;
-      if (hour < 6) {
-        currentMode = BackgroundMode.night;
-      } else if (hour < 8) {
-        currentMode = BackgroundMode.sunrise;
-      } else if (hour < 18) {
-        currentMode = BackgroundMode.day;
-      } else {
-        currentMode = BackgroundMode.night;
-      }
+      if (hour < 6) mode = BackgroundMode.night;
+      else if (hour < 8) mode = BackgroundMode.sunrise;
+      else if (hour < 18) mode = BackgroundMode.day;
+      else mode = BackgroundMode.night;
     } else if (rain) {
-      currentMode = light < 200 ? BackgroundMode.night : BackgroundMode.rainy;
+      mode = light < 200 ? BackgroundMode.night : BackgroundMode.rainy;
     } else if (light < 200) {
-      currentMode = BackgroundMode.night;
+      mode = BackgroundMode.night;
     } else if (light < 500) {
-      currentMode = BackgroundMode.sunrise;
+      mode = BackgroundMode.sunrise;
     } else if (humidity > 70) {
-      currentMode = BackgroundMode.cloudy;
+      mode = BackgroundMode.cloudy;
     } else {
-      currentMode = BackgroundMode.day;
+      mode = BackgroundMode.day;
     }
 
     return BackgroundProvider(
-      mode: currentMode,  
+      mode: mode,
       child: Stack(
         children: [
           Positioned.fill(
@@ -83,23 +87,17 @@ class BackgroundEngine extends StatelessWidget {
               fit: BoxFit.cover,
             ),
           ),
-      
-        // Rain particles
-        if (rain) const Positioned.fill(child: _RainParticles()),
 
-        // Stars 
-        if (!rain && light < 200)
-          const Positioned.fill(child: _StarParticles()),
+          if (rain) const Positioned.fill(child: _RainParticles()),
+          if (!rain && light < 200) const Positioned.fill(child: _StarParticles()),
 
-        // Foreground child
-        if (child != null) child!,
+          if (child != null) child!,
         ],
       ),
     );
   }
 
   String _selectBackground() {
-    // Fallback when ESP32 data unavailable
     if (!sensorsOnline) {
       final hour = DateTime.now().hour;
       if (hour < 6) return "night.png";
@@ -109,26 +107,17 @@ class BackgroundEngine extends StatelessWidget {
     }
 
     if (rain) {
-      return light < 200
-          ? "night.png"    // Rain + night
-          : "rainyday.png"; // Rain + day
+      return light < 200 ? "night.png" : "rainyday.png";
     }
 
-    // Night
     if (light < 200) return "night.png";
-
-    // Dawn/Dusk
     if (light < 500) return "sunrise.png";
-
-    // Humid/Misty
     if (humidity > 70) return "cloudy.png";
 
-    // Bright day
     return "day.png";
   }
 }
 
-//Stars
 class _StarParticles extends StatefulWidget {
   const _StarParticles();
 
@@ -139,8 +128,8 @@ class _StarParticles extends StatefulWidget {
 class _StarParticlesState extends State<_StarParticles>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  List<Offset> stars = [];
-  List<double> brightness = [];
+  final List<Offset> stars = [];
+  final List<double> brightness = [];
 
   @override
   void initState() {
@@ -179,7 +168,6 @@ class _StarParticlesState extends State<_StarParticles>
   }
 }
 
-//stars
 class _StarPainter extends CustomPainter {
   final List<Offset> stars;
   final List<double> brightness;
@@ -193,7 +181,6 @@ class _StarPainter extends CustomPainter {
 
     for (int i = 0; i < stars.length; i++) {
       double opacity = ((brightness[i] + flicker) % 1.0).clamp(0.0, 1.0);
-
       paint.color = Color.fromRGBO(255, 255, 255, opacity);
 
       Offset pos = Offset(
@@ -209,7 +196,6 @@ class _StarPainter extends CustomPainter {
   bool shouldRepaint(_) => true;
 }
 
-//rain
 class _RainParticles extends StatefulWidget {
   const _RainParticles();
 
@@ -217,7 +203,6 @@ class _RainParticles extends StatefulWidget {
   State<_RainParticles> createState() => _RainParticlesState();
 }
 
-//Rain Particles
 class _RainParticlesState extends State<_RainParticles>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
@@ -233,7 +218,6 @@ class _RainParticlesState extends State<_RainParticles>
       duration: const Duration(milliseconds: 800),
     )..repeat();
 
-    // 60 rain drops
     for (int i = 0; i < 60; i++) {
       drops.add(Offset(random.nextDouble(), random.nextDouble()));
     }
