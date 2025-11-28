@@ -238,10 +238,8 @@ class _DashboardPageState extends State<DashboardPage> {
                             child: Text(
                               actionMessage!,
                               style: const TextStyle(
-                                color: Colors.yellowAccent,
+                                color: Colors.white,
                                 fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                fontStyle: FontStyle.italic,
                               ),
                               textAlign: TextAlign.center,
                             ),
