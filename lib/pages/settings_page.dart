@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';  
 
 class SettingsPage extends StatelessWidget {
   final String userDocId;
@@ -16,6 +17,10 @@ class SettingsPage extends StatelessWidget {
           .doc(deviceId)
           .delete();
 
+      // Clear shared preferences to force re-login
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Device deleted successfully.")),
       );
@@ -28,7 +33,11 @@ class SettingsPage extends StatelessWidget {
     }
   }
 
-  void logout(BuildContext context) {
+  Future<void> logout(BuildContext context) async {
+    // Clear shared preferences to force re-login
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
     Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
   }
 

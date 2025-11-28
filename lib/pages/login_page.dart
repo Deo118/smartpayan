@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/gestures.dart';
+import 'package:shared_preferences/shared_preferences.dart';  
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -60,6 +61,11 @@ class _LoginPageState extends State<LoginPage> {
 
     if (result.docs.isNotEmpty) {
       final userDocId = result.docs.first.id;
+
+      // Save login state to shared preferences for persistence
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('userDocId', userDocId);
 
       Navigator.pushReplacementNamed(
         context,

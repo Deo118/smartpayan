@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';  
 import '../widgets/back_button.dart';
 import '../main.dart';
 
@@ -101,6 +102,10 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
         "mac": safeMac,
         "createdAt": FieldValue.serverTimestamp(),
       });
+
+      // Save device ID to shared preferences for persistence
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('deviceId', safeMac);
 
       Navigator.pushReplacement(
         context,
