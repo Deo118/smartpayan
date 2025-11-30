@@ -127,7 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text("SmartPayan"),
+          title: const Text("SmartPayan", style: TextStyle(color: Colors.white,)),
           backgroundColor: Colors.blueGrey.withOpacity(0.3),
         ),
         body: pages[_selectedIndex],

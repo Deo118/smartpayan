@@ -1,10 +1,13 @@
 /*
-  SmartPayan v4 — Full RTDB Sync (fixed)
-  - Auto + Manual w/ slider
+  SmartPayan v4 — Full RTDB Sync (fixed) + Event Rain + Sensitive Light
+  - Auto + Manual w/ slider (0 or 1 only, no 0.5)
   - Motor actions synced both ways
   - ESP reads/writes state
   - Prevents override conflicts
   - Clean bidirectional logic
+  - Event-based rain detection (immediate send on rain)
+  - Increased BH1750 sensitivity (0-1000 range, more responsive)
+  - All identifiers in camelCase
 */
 
 #include <WiFi.h>
@@ -14,139 +17,148 @@
 #include <BH1750.h>
 
 // --- CONFIG ---
-const char* WIFI_SSID = "Isonoe";
-const char* WIFI_PASSWORD = "Ang$arapne22";
+const char* wifiSsidVal = "Isonoe";
+const char* wifiPasswordVal = "Ang$arapne22";
 
-const char* firebaseURL =
+const char* firebaseUrlVal =
   "https://smartpayan-f7ea7-default-rtdb.asia-southeast1.firebasedatabase.app/devices/";
 
-bool DEBUG_MODE = true;
+bool debugModeVal = true;
 
 // --- PINS ---
-#define DHT_PIN 4
-#define DHT_TYPE DHT22
-#define RAIN_ANALOG_PIN 34
-#define RAIN_DIGITAL_PIN 35
-#define MOTOR_IN1 25
-#define MOTOR_IN2 26
-#define MOTOR_ENA 27
-#define I2C_SDA 21
-#define I2C_SCL 22
+#define dhtPinVal 4
+#define dhtTypeVal DHT22
+#define rainAnalogPinVal 34
+#define rainDigitalPinVal 35
+#define motorIn1Val 25
+#define motorIn2Val 26
+#define motorEnaVal 27
+#define i2cSdaVal 21
+#define i2cSclVal 22
 
 // --- CONSTANTS ---
-int RAIN_THRESHOLD = 2500;
-int LIGHT_THRESHOLD = 100;
-int SENSOR_READ_INTERVAL = 5000;
-int COMMAND_READ_INTERVAL = 1000;
-int DATA_UPDATE_INTERVAL = 10000;
+int rainThresholdVal = 2500;
+int lightThresholdVal = 100;
+int sensorReadIntervalVal = 5000;
+int commandReadIntervalVal = 1000;
+int dataUpdateIntervalVal = 10000;
 
-int MOTOR_SPEED = 80;
+int motorSpeedVal = 80;
 
 // --- OBJECTS ---
-DHT dht(DHT_PIN, DHT_TYPE);
-BH1750 lightMeter;
+DHT dhtVal(dhtPinVal, dhtTypeVal);
+BH1750 lightMeterVal;
 
-enum ClotheslineState { EXTENDED, RETRACTED, MOVING };
-ClotheslineState currentState = RETRACTED;
-ClotheslineState rtdbState = RETRACTED;
+enum ClotheslineStateVal { Extended, Retracted, Moving };
+ClotheslineStateVal currentStateVal = Retracted;
+ClotheslineStateVal rtdbStateVal = Retracted;
 
-bool autoMode = true;
-float sliderValue = 0.5;
+bool autoModeVal = true;
+float sliderValueVal = 0.5;
 
-float temperature = 0;
-float humidity = 0;
-float luxRaw = 0;
-float lightLevel = 0;
-bool rainDetected = false;
+float tempVal = 0;
+float humidityVal = 0;
+float luxRawVal = 0;
+float lightLevelVal = 0;
+bool rainDetectedVal = false;
+bool lastRainStateVal = false;  // Track previous rain state for event detection
 
 // Firebase keys
-String realMac;
-String deviceKey;
+String realMacVal;
+String deviceKeyVal;
 
 // timers
-unsigned long lastSensorRead = 0;
-unsigned long lastDataUpdate = 0;
-unsigned long lastCommandRead = 0;
+unsigned long lastSensorReadVal = 0;
+unsigned long lastDataUpdateVal = 0;
+unsigned long lastCommandReadVal = 0;
 
 // -------------------------------------------------------
 void setup() {
   Serial.begin(115200);
   Serial.println("\nSmartPayan v4 Ready...");
 
-  pinMode(RAIN_ANALOG_PIN, INPUT);
-  pinMode(RAIN_DIGITAL_PIN, INPUT);
-  pinMode(MOTOR_IN1, OUTPUT);
-  pinMode(MOTOR_IN2, OUTPUT);
-  pinMode(MOTOR_ENA, OUTPUT);
+  pinMode(rainAnalogPinVal, INPUT);
+  pinMode(rainDigitalPinVal, INPUT);
+  pinMode(motorIn1Val, OUTPUT);
+  pinMode(motorIn2Val, OUTPUT);
+  pinMode(motorEnaVal, OUTPUT);
 
-  dht.begin();
-  Wire.begin(I2C_SDA, I2C_SCL);
-  if (!lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
+  dhtVal.begin();
+  Wire.begin(i2cSdaVal, i2cSclVal);
+  if (!lightMeterVal.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
     Serial.println("Warning: BH1750 init failed");
   }
 
   Serial.print("Connecting WiFi");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(wifiSsidVal, wifiPasswordVal);
   while (WiFi.status() != WL_CONNECTED) { Serial.print("."); delay(200); }
 
-  realMac = WiFi.macAddress();            // e.g. AA:BB:CC:DD:EE:FF
-  deviceKey = realMac;
-  deviceKey.replace(":", "_");            // e.g. AA_BB_CC_DD_EE_FF
+  realMacVal = WiFi.macAddress();            // e.g. AA:BB:CC:DD:EE:FF
+  deviceKeyVal = realMacVal;
+  deviceKeyVal.replace(":", "_");            // e.g. AA_BB_CC_DD_EE_FF
 
   Serial.println("\nConnected as:");
-  Serial.println(deviceKey);
+  Serial.println(deviceKeyVal);
 }
 
 // -------------------------------------------------------
 void loop() {
   unsigned long ms = millis();
 
-  if (ms - lastSensorRead >= SENSOR_READ_INTERVAL) {
-    lastSensorRead = ms;
-    readSensors();
-    if (DEBUG_MODE) printDebug();
+  if (ms - lastSensorReadVal >= sensorReadIntervalVal) {
+    lastSensorReadVal = ms;
+    readSensorVals();
+    if (debugModeVal) printDebugVal();
   }
 
-  if (ms - lastCommandRead >= COMMAND_READ_INTERVAL) {
-    lastCommandRead = ms;
-    readCommands();    // kept name simple to match loop()
-    readRTDBState();   // sync state from app
+  if (ms - lastCommandReadVal >= commandReadIntervalVal) {
+    lastCommandReadVal = ms;
+    readCommandsVal();    // kept name simple to match loop()
+    readRtdbStateVal();   // sync state from app
   }
 
-  if (ms - lastDataUpdate >= DATA_UPDATE_INTERVAL) {
-    lastDataUpdate = ms;
-    sendSensorData();
+  if (ms - lastDataUpdateVal >= dataUpdateIntervalVal) {
+    lastDataUpdateVal = ms;
+    sendSensorDataVal();
   }
 
-  applyControlLogic();
+  applyControlLogicVal();
 
   delay(10);
 }
 
 // -------------------------------------------------------
-void readSensors() {
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
+void readSensorVals() {
+  float t = dhtVal.readTemperature();
+  float h = dhtVal.readHumidity();
 
-  if (!isnan(t)) temperature = t;
-  if (!isnan(h)) humidity = h;
+  if (!isnan(t)) tempVal = t;
+  if (!isnan(h)) humidityVal = h;
 
-  float lux = lightMeter.readLightLevel();
-  if (lux >= 0) luxRaw = lux;
+  float lux = lightMeterVal.readLightLevel();
+  if (lux >= 0) luxRawVal = lux;
 
-  lightLevel = min((float)50000, luxRaw) / 50.0; // mapped 0..1000
+  // Increased sensitivity - cap at 10,000 lux, divide by 10 for 0-1000 range
+  lightLevelVal = min((float)10000, luxRawVal) / 10.0;
 
-  int analog = analogRead(RAIN_ANALOG_PIN);
-  int digital = digitalRead(RAIN_DIGITAL_PIN);
+  int analog = analogRead(rainAnalogPinVal);
+  int digital = digitalRead(rainDigitalPinVal);
 
-  rainDetected = (analog < RAIN_THRESHOLD) || (digital == LOW);
+  bool prevRain = rainDetectedVal;
+  rainDetectedVal = (analog < rainThresholdVal) || (digital == LOW);
+
+  // Event-based rain detection - send immediately if rain newly detected
+  if (rainDetectedVal && !prevRain) {
+    Serial.println("Rain detected! Sending data immediately...");
+    sendSensorDataVal();
+  }
 }
 
 // -------------------------------------------------------
-void readCommands() {
+void readCommandsVal() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  String url = String(firebaseURL) + deviceKey + "/commands.json";
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/commands.json";
 
   HTTPClient http;
   http.begin(url);
@@ -159,7 +171,7 @@ void readCommands() {
 
   // --- AUTO MODE ---
   if (payload.indexOf("\"autoMode\":") != -1) {
-    autoMode = payload.indexOf("\"autoMode\":true") != -1;
+    autoModeVal = payload.indexOf("\"autoMode\":true") != -1;
   }
 
   // --- SLIDER (clotheslinePosition) ---
@@ -172,30 +184,27 @@ void readCommands() {
       if (endIdx != -1 && endIdx > colon) {
         String numStr = payload.substring(colon + 1, endIdx);
         numStr.trim();
-        sliderValue = numStr.toFloat();
+        sliderValueVal = numStr.toFloat();
       }
     }
   }
 
-  // --- APPLY USER COMMANDS (interpretation)
-  if (!autoMode) {
-    if (sliderValue <= 0.1) {          // Treat ~0.0 as RETRACT
-      retract();
+  // --- APPLY USER COMMANDS (interpretation) ---
+  if (!autoModeVal) {
+    if (sliderValueVal <= 0.1) {          // 0: Retract
+      retractVal();
     } 
-    else if (sliderValue >= 0.9) {     // Treat ~1.0 as EXTEND
-      extend();
-    } 
-    else {                             // 0.5 (or other mid) => go back to auto
-      autoMode = true;
+    else if (sliderValueVal >= 0.9) {     // 1: Extend
+      extendVal();
     }
   }
 }
 
 // -------------------------------------------------------
-void readRTDBState() {
+void readRtdbStateVal() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  String url = String(firebaseURL) + deviceKey + "/sensorData/state.json";
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData/state.json";
 
   HTTPClient http;
   http.begin(url);
@@ -205,88 +214,88 @@ void readRTDBState() {
   String state = http.getString();
   http.end();
 
-  if (state.indexOf("extended") != -1) rtdbState = EXTENDED;
-  else if (state.indexOf("retracted") != -1) rtdbState = RETRACTED;
+  if (state.indexOf("extended") != -1) rtdbStateVal = Extended;
+  else if (state.indexOf("retracted") != -1) rtdbStateVal = Retracted;
   // if RTDB says moving or unknown, we ignore/change nothing
 
   // If app changed state manually, ESP follows (only when NOT auto)
-  if (rtdbState != currentState && !autoMode) {
-    if (rtdbState == EXTENDED) extend();
-    if (rtdbState == RETRACTED) retract();
+  if (rtdbStateVal != currentStateVal && !autoModeVal) {
+    if (rtdbStateVal == Extended) extendVal();
+    if (rtdbStateVal == Retracted) retractVal();
   }
 }
 
 // -------------------------------------------------------
-void applyControlLogic() {
-  if (!autoMode) return;
+void applyControlLogicVal() {
+  if (!autoModeVal) return;
 
   bool retractNow = false;
   bool extendNow = false;
 
-  if (rainDetected) retractNow = true;
-  else if (lightLevel < 200) retractNow = true;
-  else if (humidity > 85) retractNow = true;
+  if (rainDetectedVal) retractNow = true;
+  else if (lightLevelVal < 200) retractNow = true;
+  else if (humidityVal > 85) retractNow = true;
   else extendNow = true;
 
-  if (retractNow && currentState != RETRACTED) retract();
-  if (extendNow && currentState != EXTENDED) extend();
+  if (retractNow && currentStateVal != Retracted) retractVal();
+  if (extendNow && currentStateVal != Extended) extendVal();
 }
 
 // -------------------------------------------------------
-void extend() {
-  currentState = MOVING;
-  digitalWrite(MOTOR_IN1, HIGH);
-  digitalWrite(MOTOR_IN2, LOW);
-  analogWrite(MOTOR_ENA, MOTOR_SPEED); // If analogWrite unavailable on your core, switch to ledc
+void extendVal() {
+  currentStateVal = Moving;
+  digitalWrite(motorIn1Val, HIGH);
+  digitalWrite(motorIn2Val, LOW);
+  analogWrite(motorEnaVal, motorSpeedVal); // If analogWrite unavailable on your core, switch to ledc
   delay(1000);
-  stopMotor();
-  currentState = EXTENDED;
-  updateState();
+  stopMotorVal();
+  currentStateVal = Extended;
+  updateStateVal();
 }
 
-void retract() {
-  currentState = MOVING;
-  digitalWrite(MOTOR_IN1, LOW);
-  digitalWrite(MOTOR_IN2, HIGH);
-  analogWrite(MOTOR_ENA, MOTOR_SPEED);
+void retractVal() {
+  currentStateVal = Moving;
+  digitalWrite(motorIn1Val, LOW);
+  digitalWrite(motorIn2Val, HIGH);
+  analogWrite(motorEnaVal, motorSpeedVal);
   delay(1000);
-  stopMotor();
-  currentState = RETRACTED;
-  updateState();
+  stopMotorVal();
+  currentStateVal = Retracted;
+  updateStateVal();
 }
 
-void stopMotor() {
-  digitalWrite(MOTOR_IN1, LOW);
-  digitalWrite(MOTOR_IN2, LOW);
-  analogWrite(MOTOR_ENA, 0);
+void stopMotorVal() {
+  digitalWrite(motorIn1Val, LOW);
+  digitalWrite(motorIn2Val, LOW);
+  analogWrite(motorEnaVal, 0);
 }
 
 // -------------------------------------------------------
-void updateState() {
+void updateStateVal() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  String url = String(firebaseURL) + deviceKey + "/sensorData/state.json";
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData/state.json";
 
   HTTPClient http;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  http.PUT("\"" + getStateString(currentState) + "\"");
+  http.PUT("\"" + getStateStringVal(currentStateVal) + "\"");
   http.end();
 }
 
 // -------------------------------------------------------
-void sendSensorData() {
+void sendSensorDataVal() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  String url = String(firebaseURL) + deviceKey + "/sensorData.json";
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData.json";
 
   String json = "{";
-  json += "\"macAddress\":\"" + realMac + "\",";
-  json += "\"temperature\":" + String(temperature, 1) + ",";
-  json += "\"humidity\":" + String(humidity, 1) + ",";
-  json += "\"lightLevel\":" + String(lightLevel, 1) + ",";
-  json += "\"rain\":" + String(rainDetected ? "true" : "false") + ",";
-  json += "\"state\":\"" + getStateString(currentState) + "\"";
+  json += "\"macAddress\":\"" + realMacVal + "\",";
+  json += "\"temperature\":" + String(tempVal, 1) + ",";
+  json += "\"humidity\":" + String(humidityVal, 1) + ",";
+  json += "\"lightLevel\":" + String(lightLevelVal, 1) + ",";
+  json += "\"rain\":" + String(rainDetectedVal ? "true" : "false") + ",";
+  json += "\"state\":\"" + getStateStringVal(currentStateVal) + "\"";
   json += "}";
 
   HTTPClient http;
@@ -297,22 +306,22 @@ void sendSensorData() {
 }
 
 // -------------------------------------------------------
-String getStateString(ClotheslineState s) {
-  if (s == EXTENDED) return "extended";
-  if (s == RETRACTED) return "retracted";
+String getStateStringVal(ClotheslineStateVal s) {
+  if (s == Extended) return "extended";
+  if (s == Retracted) return "retracted";
   return "moving";
 }
 
 // -------------------------------------------------------
-void printDebug() {
-  Serial.println("---- SmartPayan Debug ----");
-  Serial.printf("AutoMode: %s\n", autoMode ? "true" : "false");
-  Serial.printf("Slider: %.2f\n", sliderValue);
-  Serial.printf("State: %s\n", getStateString(currentState).c_str());
-  Serial.printf("RTDB State: %s\n", getStateString(rtdbState).c_str());
-  Serial.printf("Temp: %.1f\n", temperature);
-  Serial.printf("Humidity: %.1f\n", humidity);
-  Serial.printf("Light: %.1f (mapped: 0-1000)\n", lightLevel);
-  Serial.printf("Rain: %s\n", rainDetected ? "YES" : "NO");
+void printDebugVal() {
+  Serial.println("---- SmartPayan Status ----");
+  Serial.printf("AutoMode: %s\n", autoModeVal ? "true" : "false");
+  Serial.printf("Slider: %.2f\n", sliderValueVal);
+  Serial.printf("State: %s\n", getStateStringVal(currentStateVal).c_str());
+  Serial.printf("RTDB State: %s\n", getStateStringVal(rtdbStateVal).c_str());
+  Serial.printf("Temp: %.1f\n", tempVal);
+  Serial.printf("Humidity: %.1f\n", humidityVal);
+  Serial.printf("Light: %.1f (mapped: 0-1000)\n", lightLevelVal);
+  Serial.printf("Rain: %s\n", rainDetectedVal ? "YES" : "NONE");
   Serial.println("--------------------------\n");
 }
