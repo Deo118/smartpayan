@@ -141,7 +141,7 @@ class _StarParticlesState extends State<_StarParticles>
     )..repeat(reverse: true);
 
     final random = Random();
-    for (int i = 0; i < 60; i++) {
+    for (int i = 0; i < 30; i++) {
       stars.add(Offset(random.nextDouble(), random.nextDouble()));
       brightness.add(random.nextDouble());
     }
@@ -153,8 +153,10 @@ class _StarParticlesState extends State<_StarParticles>
       animation: _controller,
       builder: (_, __) {
         return SizedBox.expand(
-          child: CustomPaint(
-            painter: _StarPainter(stars, brightness, _controller.value),
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: _StarPainter(stars, brightness, _controller.value),
+            ),
           ),
         );
       },
@@ -218,7 +220,7 @@ class _RainParticlesState extends State<_RainParticles>
       duration: const Duration(milliseconds: 800),
     )..repeat();
 
-    for (int i = 0; i < 60; i++) {
+    for (int i = 0; i < 30; i++) {
       drops.add(Offset(random.nextDouble(), random.nextDouble()));
     }
   }
@@ -229,8 +231,10 @@ class _RainParticlesState extends State<_RainParticles>
       animation: _controller,
       builder: (_, __) {
         return SizedBox.expand(
-          child: CustomPaint(
-            painter: _RainPainter(drops, _controller.value),
+          child: RepaintBoundary(
+            child: CustomPaint(
+              painter: _RainPainter(drops, _controller.value),
+            ),
           ),
         );
       },

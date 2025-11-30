@@ -110,7 +110,6 @@ class _HomeScreenState extends State<HomeScreen> {
       DashboardPage(
         deviceId: widget.deviceId,
         sensorData: sensorData,
-        isOnline: isOnline,
       ),
       AlertsPage(),
       SettingsPage(

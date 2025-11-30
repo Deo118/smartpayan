@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'dart:async'; // For Timer
 import '../backgrounds/background_engine.dart';
 
 class DashboardPage extends StatefulWidget {
   final String deviceId;
-  final Map<String, dynamic> sensorData;
-  final bool isOnline;
+  final Map<String, dynamic> sensorData; // This can now be initial/cached data
 
   const DashboardPage({
     super.key,
     required this.deviceId,
     required this.sensorData,
-    required this.isOnline,
   });
 
   @override
@@ -21,15 +20,63 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   double sliderValue = 0.5;
   bool isAuto = true;
-  String? actionMessage; 
+  String? actionMessage;
   DatabaseReference? commandRef;
+  DatabaseReference? sensorDataRef;
+  StreamSubscription<DatabaseEvent>? sensorDataSubscription;
+  Timer? offlineCheckTimer;
+
+  // Offline detection variables
+  bool isOnline = true; // Start as online (will update based on RTDB)
+  DateTime? lastUpdateTime;
+  static const int offlineThresholdSeconds = 30; // Threshold: 30s (adjust as needed)
 
   @override
   void initState() {
     super.initState();
-    commandRef = FirebaseDatabase.instance.ref(
-      'devices/${widget.deviceId}/commands',
-    );
+
+    // Command reference (unchanged)
+    commandRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/commands');
+
+    // Sensor data reference and listener
+    sensorDataRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/sensorData');
+    sensorDataSubscription = sensorDataRef!.onValue.listen((event) {
+      if (event.snapshot.value != null) {
+        // Update last update time on any change
+        setState(() {
+          lastUpdateTime = DateTime.now();
+          isOnline = true; // Mark as online on new data
+        });
+        print("Sensor data updated at $lastUpdateTime"); // Debug log
+      }
+    });
+
+    // Periodic timer to check for offline status
+    offlineCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (lastUpdateTime != null) {
+        final timeSinceLastUpdate = DateTime.now().difference(lastUpdateTime!);
+        if (timeSinceLastUpdate > const Duration(seconds: offlineThresholdSeconds)) {
+          setState(() {
+            isOnline = false;
+          });
+          print("Device offline detected (last update: $lastUpdateTime)"); // Debug log
+        }
+      } else {
+        // If no data ever received, consider offline after threshold from app start
+        if (DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(0)) > const Duration(seconds: offlineThresholdSeconds)) {
+          setState(() {
+            isOnline = false;
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    sensorDataSubscription?.cancel();
+    offlineCheckTimer?.cancel();
+    super.dispose();
   }
 
   void sendCommand(String key, dynamic value) {
@@ -47,13 +94,12 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget build(BuildContext context) {
     final mode = BackgroundProvider.of(context).mode;
 
-    final data = widget.sensorData;
+    final data = widget.sensorData; // Use passed data (initial/cached)
 
     int light = (data['lightLevel'] as num?)?.toInt() ?? 600;
     bool rain = data['rain'] == true;
     int humidity = (data['humidity'] as num?)?.toInt() ?? 70;
     double temperature = (data['temperature'] as num?)?.toDouble() ?? 25.0;
-    bool online = widget.isOnline;
     String? clotheslineState = data['state'] as String?;
 
     // Update slider based on mode
@@ -93,10 +139,11 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ),
 
-                  if (!online)
+                  // Offline message (now dynamic)
+                  if (!isOnline)
                     const Text(
                       "Device Offline - Showing cached data",
-                      style: TextStyle(color: Colors.red),
+                      style: TextStyle(color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold),
                     ),
 
                   const SizedBox(height: 20),
