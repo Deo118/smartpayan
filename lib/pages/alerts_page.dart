@@ -1,35 +1,101 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../backgrounds/background_engine.dart';
 
-class AlertsPage extends StatelessWidget {
-  final List<Map<String, String>> alerts = [
-    {"time": "10:42 AM", "msg": "Rain detected — retracting clothesline"},
-    {"time": "9:18 AM", "msg": "Humidity high (87%)"},
-    {"time": "8:05 AM", "msg": "Sunrise detected — switching to day mode"},
-  ];
+class AlertsPage extends StatefulWidget {
+  const AlertsPage({super.key});
+
+  @override
+  State<AlertsPage> createState() => _AlertsPageState();
+}
+
+class _AlertsPageState extends State<AlertsPage> {
+  List<Map<String, dynamic>> alerts = [];
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    fetchAlerts();
+    setupRealtimeSubscription();
+  }
+
+  // Fetch latest notifications from Supabase
+  Future<void> fetchAlerts() async {
+    final supabase = Supabase.instance.client;
+
+    try {
+      final response = await supabase
+          .from('notifications')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(50);
+
+      setState(() {
+        alerts = List<Map<String, dynamic>>.from(response);
+        isLoading = false;
+      });
+    } catch (e) {
+      print("Fetch alerts error: $e");
+      setState(() => isLoading = false);
+    }
+  }
+
+  // Realtime subscription for instant updates
+  void setupRealtimeSubscription() {
+  final supabase = Supabase.instance.client;
+
+  supabase.channel('public:notifications')
+    .onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'notifications',
+      callback: (payload) {
+        final newRow = payload.newRecord;
+        if (newRow != null) {
+          setState(() {
+            alerts.insert(0, newRow); // prepend newest alert
+          });
+        }
+      },
+    )
+    .subscribe();
+}
+
 
   @override
   Widget build(BuildContext context) {
-    // Access the universal background mode
     final mode = BackgroundProvider.of(context).mode;
 
     return Stack(
       children: [
-        // Background already handled by BackgroundEngine in main.dart
-
-        // Foreground UI
         Positioned.fill(
           child: SafeArea(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: alerts.length,
-              itemBuilder: (context, i) {
-                return _alertCard(
-                  mode: mode,
-                  msg: alerts[i]["msg"]!,
-                  time: alerts[i]["time"]!,
-                );
-              },
+            child: RefreshIndicator(
+              onRefresh: fetchAlerts,
+              child: isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(color: Colors.white),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: alerts.length,
+                      itemBuilder: (context, i) {
+                        final alert = alerts[i];
+
+                        // Parse timestamp
+                        final createdAt = DateTime.tryParse(alert['created_at'] ?? "") ??
+                            DateTime.now();
+                        final timeString =
+                            "${createdAt.hour}:${createdAt.minute.toString().padLeft(2, '0')}";
+
+                        return _alertCard(
+                          mode: mode,
+                          msg: alert['message'] ?? 'No message',
+                          time: timeString,
+                        );
+                      },
+                    ),
             ),
           ),
         ),
@@ -42,7 +108,6 @@ class AlertsPage extends StatelessWidget {
     required String msg,
     required String time,
   }) {
-    // Adjust card color based on mode
     Color cardColor;
     switch (mode) {
       case BackgroundMode.night:
@@ -65,7 +130,7 @@ class AlertsPage extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.notifications, color: Colors.white, size: 28),
+          const Icon(Icons.notifications, color: Colors.white, size: 28),
           const SizedBox(width: 12),
           Expanded(
             child: Text(

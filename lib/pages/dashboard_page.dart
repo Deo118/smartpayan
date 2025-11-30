@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'dart:async'; // For Timer
+import 'dart:async'; 
 import '../backgrounds/background_engine.dart';
+import '../notifications/supabase_notif.dart';
 
 class DashboardPage extends StatefulWidget {
   final String deviceId;
-  final Map<String, dynamic> sensorData; // This can now be initial/cached data
+  final Map<String, dynamic> sensorData; 
 
   const DashboardPage({
     super.key,
@@ -35,7 +36,7 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
 
-    // Command reference (unchanged)
+    // Command reference 
     commandRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/commands');
 
     // Sensor data reference and listener
@@ -44,9 +45,21 @@ class _DashboardPageState extends State<DashboardPage> {
       if (event.snapshot.value != null) {
         // Update last update time on any change
         setState(() {
+          final wasOffline = !isOnline;
           lastUpdateTime = DateTime.now();
           isOnline = true; // Mark as online on new data
+
+          if (wasOffline) {
+            // device just came back online
+            sendSupabaseNotif(
+              "Device Online",
+              "SmartPayan device is back online.",
+              "online",
+              widget.deviceId.replaceAll(':', '_'),
+            );
+          }
         });
+
         print("Sensor data updated at $lastUpdateTime"); // Debug log
       }
     });
@@ -56,9 +69,19 @@ class _DashboardPageState extends State<DashboardPage> {
       if (lastUpdateTime != null) {
         final timeSinceLastUpdate = DateTime.now().difference(lastUpdateTime!);
         if (timeSinceLastUpdate > const Duration(seconds: offlineThresholdSeconds)) {
+          if (isOnline == true) {
+            // device just changed from online -> offline
+            sendSupabaseNotif(
+              "Device Offline",
+              "SmartPayan device has stopped sending sensor data.",
+              "offline",
+              widget.deviceId.replaceAll(':', '_'),
+            );
+          }
           setState(() {
             isOnline = false;
           });
+
           print("Device offline detected (last update: $lastUpdateTime)"); // Debug log
         }
       } else {
