@@ -1,5 +1,4 @@
 import 'package:firebase_database/firebase_database.dart';
-import 'supabase_notif.dart';
 
 void startListeningToClothesline(String deviceIdRaw) {
   final safeId = deviceIdRaw.replaceAll(':', '_');
@@ -13,22 +12,15 @@ void startListeningToClothesline(String deviceIdRaw) {
     final state = event.snapshot.value?.toString() ?? "";
     print("Clothesline state changed: $state");
 
+    // Flutter no longer sends notifications.
+    // ESP32 must call Supabase Edge Function directly.
     handleStateChange(state, safeId);
   });
 }
 
 void handleStateChange(String state, String deviceId) {
-  String title = "Clothesline Update";
-  String message = "";
+  // Flutter should ONLY update local UI.
+  // No notifications are sent from the app anymore.
 
-  if (state == "retracted") {
-    message = "Rain or low light detected. Clothesline is retracted.";
-  } else if (state == "extended") {
-    message = "Good weather detected. Clothesline is extended.";
-  }
-
-  if (message.isNotEmpty) {
-    print("Sending notification: $message");
-    sendSupabaseNotif(title, message, "clothesline_state", deviceId);
-  }
+  print("State changed (UI only): $state");
 }

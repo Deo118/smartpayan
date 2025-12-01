@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+// Background engine & notifications
 import 'backgrounds/background_engine.dart';
 import 'notifications/notifications.dart';
 
@@ -17,10 +18,13 @@ import 'pages/login_page.dart';
 import 'pages/create_account.dart';
 import 'pages/setup_device.dart';
 
-// Local notifications plugin
-final FlutterLocalNotificationsPlugin localNotif = FlutterLocalNotificationsPlugin();
+// -----------------------------------------------------------
+// LOCAL NOTIFICATION PLUGIN
+// -----------------------------------------------------------
 
-// Notification channel (Android 8+)
+final FlutterLocalNotificationsPlugin localNotif =
+    FlutterLocalNotificationsPlugin();
+
 const AndroidNotificationChannel mainChannel = AndroidNotificationChannel(
   'default_channel',
   'SmartPayan Alerts',
@@ -28,14 +32,20 @@ const AndroidNotificationChannel mainChannel = AndroidNotificationChannel(
   importance: Importance.high,
 );
 
-// Background FCM handler
+// REQUIRED FOR ANDROID BACKGROUND HANDLING
+@pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
+  final data = message.data;
+
+  final notifTitle = data['title'] ?? "SmartPayan Alert";
+  final notifBody = data['body'] ?? "";
+
   localNotif.show(
-    0,
-    message.notification?.title,
-    message.notification?.body,
+    DateTime.now().millisecondsSinceEpoch ~/ 1000,   // UNIQUE ID
+    notifTitle,
+    notifBody,
     const NotificationDetails(
       android: AndroidNotificationDetails(
         'default_channel',
@@ -47,42 +57,46 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   );
 }
 
+// -----------------------------------------------------------
+// MAIN INIT
+// -----------------------------------------------------------
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
-  // Supabase init
+  // Init Supabase
   await Supabase.initialize(
     url: 'https://dbwhtzoahlzgpiuhqvlv.supabase.co',
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0.Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8',
   );
 
-  // Ask permission
+  // Notification permission
   await FirebaseMessaging.instance.requestPermission();
 
-  // Local notification initialization
-  const AndroidInitializationSettings androidSettings =
-      AndroidInitializationSettings('@mipmap/ic_launcher');
-
-  const InitializationSettings initSettings =
-      InitializationSettings(android: androidSettings);
+  // Local Notification Initialization
+  const initSettings = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+  );
 
   await localNotif.initialize(initSettings);
 
-  // Create notification channel (required)
-  await localNotif
-      .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(mainChannel);
+  // Create notification channel
+  final androidPlugin =
+      localNotif.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+  await androidPlugin?.createNotificationChannel(mainChannel);
 
-  // Background FCM handler
+  // Background handler register
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(const MyApp());
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------
+// MAIN APP WIDGET
+// -----------------------------------------------------------
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -106,7 +120,9 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------
+// HOME SCREEN
+// -----------------------------------------------------------
 
 class HomeScreen extends StatefulWidget {
   final String userDocId;
@@ -141,37 +157,38 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final safeId = widget.deviceId.replaceAll(':', '_');
 
-    // Listen to clothesline changes
-    startListeningToClothesline(safeId);
-
-    // Register FCM token for push notifications
-    registerDeviceToken(safeId);
-
     // RTDB listener
     ref = FirebaseDatabase.instance.ref("devices/$safeId/sensorData");
 
     ref!.onValue.listen((event) {
+      if (!mounted) return;
+
       if (event.snapshot.value == null) {
-        if (mounted) setState(() => isOnline = false);
+        setState(() => isOnline = false);
         return;
       }
 
       final data = Map<String, dynamic>.from(event.snapshot.value as Map);
-
-      if (mounted) {
-        setState(() {
-          sensorData = data;
-          isOnline = true;
-        });
-      }
+      setState(() {
+        sensorData = data;
+        isOnline = true;
+      });
     });
 
-    // Foreground notifications
+    // Register this device's FCM token
+    registerDeviceToken(safeId);
+
+    // FOREGROUND PUSH NOTIFICATIONS
     FirebaseMessaging.onMessage.listen((message) {
+      final data = message.data;
+
+      final notifTitle = data['title'] ?? "SmartPayan Alert";
+      final notifBody = data['body'] ?? "";
+
       localNotif.show(
-        0,
-        message.notification?.title,
-        message.notification?.body,
+        DateTime.now().millisecondsSinceEpoch ~/ 1000, // UNIQUE ID
+        notifTitle,
+        notifBody,
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'default_channel',
@@ -184,17 +201,47 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // Save FCM token to Supabase DB
+  // -----------------------------------------------------------
+  // TOKEN REGISTRATION (corrected)
+  // -----------------------------------------------------------
+
   Future<void> registerDeviceToken(String safeDeviceId) async {
-    final token = await FirebaseMessaging.instance.getToken();
+    final fcm = FirebaseMessaging.instance;
+
+    // 1 — Get token
+    final token = await fcm.getToken();
     if (token == null) return;
 
-    await Supabase.instance.client.from("device_tokens").upsert({
+    print("FCM Token Now: $token");
+
+    // 2 — Clear previous tokens for this device
+    await Supabase.instance.client
+        .from('device_tokens')
+        .delete()
+        .eq('device_id', safeDeviceId);
+
+    // 3 — Insert new fresh token
+    await Supabase.instance.client.from("device_tokens").insert({
       "device_id": safeDeviceId,
       "fcm_token": token,
+      "updated_at": DateTime.now().toIso8601String(),
     });
 
-    print("Device Token registered: $token");
+    // 4 — Listen for token refresh
+    fcm.onTokenRefresh.listen((newToken) async {
+      // Wipe old tokens again
+      await Supabase.instance.client
+          .from('device_tokens')
+          .delete()
+          .eq('device_id', safeDeviceId);
+
+      // Insert new
+      await Supabase.instance.client.from("device_tokens").insert({
+        "device_id": safeDeviceId,
+        "fcm_token": newToken,
+        "updated_at": DateTime.now().toIso8601String(),
+      });
+    });
   }
 
   @override

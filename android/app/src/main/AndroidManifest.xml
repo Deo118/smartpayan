@@ -1,28 +1,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- REQUIRED for Android 13+ notifications -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Android 13+ notification permission -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:label="smartpayan"
         android:name="${applicationName}"
+        android:label="smartpayan"
         android:icon="@mipmap/ic_launcher">
 
-        <!-- Notification channel + notification icon -->
+        <!-- Default notification channel (must match your Flutter code) -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="default_channel" />
 
+        <!-- Notification icon for FCM -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@mipmap/ic_launcher" />
 
-        <!-- Firebase Messaging service -->
+        <!-- CORRECT Firebase messaging service for Flutter -->
         <service
-            android:name="com.google.firebase.messaging.FirebaseMessagingService"
+            android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
 
@@ -46,18 +47,16 @@
             </intent-filter>
         </activity>
 
-        <!-- Flutter required -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
     </application>
 
-    <!-- Flutter text processing -->
     <queries>
         <intent>
-            <action android:name="android.intent.action.PROCESS_TEXT"/>
-            <data android:mimeType="text/plain"/>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+            <data android:mimeType="text/plain" />
         </intent>
     </queries>
 
