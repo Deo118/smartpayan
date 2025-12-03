@@ -97,7 +97,7 @@ int heartbeatIntervalVal = 30000;
 int motorSpeedVal = 80;
 
 // notification cooldown (ms) - prevents repeated notifications within this window
-const unsigned long notificationCooldownMs = 20000UL;
+const unsigned long notificationCooldownMs = 1000UL;
 
 // === OBJECTS ===
 DHT dhtVal(dhtPinVal, dhtTypeVal);
