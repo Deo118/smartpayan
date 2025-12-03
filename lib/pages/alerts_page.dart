@@ -15,7 +15,7 @@ class _AlertsPageState extends State<AlertsPage> {
   bool isLoading = true;
 
   late RealtimeChannel notifChannel;
-  final Set<dynamic> _deletingIds = {}; // prevent double deletes
+  final Set<dynamic> _deletingIds = {};
 
   bool dontAskAgainDelete = false;
 
@@ -42,7 +42,6 @@ class _AlertsPageState extends State<AlertsPage> {
     });
   }
 
-  // Fetch initial alerts
   Future<void> fetchAlerts() async {
     final supabase = Supabase.instance.client;
 
@@ -65,11 +64,12 @@ class _AlertsPageState extends State<AlertsPage> {
     }
   }
 
-  // Realtime subscription
   void setupRealtimeSubscription() {
     final supabase = Supabase.instance.client;
 
-    notifChannel = supabase.channel('public:notifications').onPostgresChanges(
+    notifChannel = supabase
+        .channel('public:notifications')
+        .onPostgresChanges(
       event: PostgresChangeEvent.insert,
       schema: 'public',
       table: 'notifications',
@@ -79,69 +79,61 @@ class _AlertsPageState extends State<AlertsPage> {
           setState(() => alerts.insert(0, newRow));
         }
       },
-    ).subscribe();
+    )
+        .subscribe();
   }
 
-  // Delete one alert
   Future<void> deleteOne(dynamic id, int index) async {
     if (id == null) return;
     if (_deletingIds.contains(id)) return;
 
     final supabase = Supabase.instance.client;
 
-    // If "Don't ask again" is TRUE → skip confirm dialog
     bool allowDelete = dontAskAgainDelete;
 
     if (!dontAskAgainDelete) {
-      // Show dialog once
       bool tempDontAskAgain = false;
 
       allowDelete = await showDialog<bool>(
-            context: context,
-            builder: (ctx) {
-              return StatefulBuilder(
-                builder: (context, setStateDialog) {
-                  return AlertDialog(
-                    title: const Text("Delete alert?"),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text("This action cannot be undone."),
-                        const SizedBox(height: 10),
-                        CheckboxListTile(
-                          value: tempDontAskAgain,
-                          onChanged: (v) {
-                            setStateDialog(() => tempDontAskAgain = v ?? false);
-                          },
-                          title: const Text("Do not ask again"),
-                          controlAffinity: ListTileControlAffinity.leading,
-                        ),
-                      ],
+        context: context,
+        builder: (ctx) {
+          return StatefulBuilder(
+            builder: (context, setStateDialog) {
+              return AlertDialog(
+                title: const Text("Delete alert?"),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("This action cannot be undone."),
+                    const SizedBox(height: 10),
+                    CheckboxListTile(
+                      value: tempDontAskAgain,
+                      onChanged: (v) {
+                        setStateDialog(() => tempDontAskAgain = v ?? false);
+                      },
+                      title: const Text("Do not ask again"),
+                      controlAffinity: ListTileControlAffinity.leading,
                     ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text("Cancel"),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text(
-                          "Delete",
-                          style: TextStyle(color: Colors.red),
-                        ),
-                      ),
-                    ],
-                  );
-                },
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text("Cancel"),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text("Delete", style: TextStyle(color: Colors.red)),
+                  ),
+                ],
               );
             },
-          ) ??
+          );
+        },
+      ) ??
           false;
 
-      // Save preference if user checked it
-      if (allowDelete) {
-        if (tempDontAskAgain) saveDeletePreference(true);
-      }
+      if (allowDelete && tempDontAskAgain) saveDeletePreference(true);
     }
 
     if (!allowDelete) return;
@@ -156,7 +148,6 @@ class _AlertsPageState extends State<AlertsPage> {
     try {
       await supabase.from("notifications").delete().eq("id", id);
     } catch (e) {
-      // Restore on failure
       if (mounted) {
         setState(() {
           alerts.insert(index.clamp(0, alerts.length), removedAlert);
@@ -173,27 +164,26 @@ class _AlertsPageState extends State<AlertsPage> {
     }
   }
 
-  // Delete ALL alerts (UUID safe)
   Future<void> deleteAllAlerts() async {
     final supabase = Supabase.instance.client;
 
     final confirm = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text("Delete all alerts?"),
-            content: const Text("This action will permanently clear all alerts."),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text("Cancel"),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text("Delete", style: TextStyle(color: Colors.red)),
-              ),
-            ],
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete all alerts?"),
+        content: const Text("This action will permanently clear all alerts."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text("Cancel"),
           ),
-        ) ??
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    ) ??
         false;
 
     if (!confirm) return;
@@ -202,7 +192,6 @@ class _AlertsPageState extends State<AlertsPage> {
     setState(() => alerts.clear());
 
     try {
-      // MUST USE UUID for UUID primary key tables
       await supabase
           .from("notifications")
           .delete()
@@ -215,14 +204,22 @@ class _AlertsPageState extends State<AlertsPage> {
     }
   }
 
-  // Format time
+  // ✅ FIXED FORMATTER — ALWAYS CORRECT PH TIME (UTC+8)
   String formatLocalTime(String timestamp) {
     try {
-      final dt = DateTime.parse(timestamp).toLocal();
-      final hh = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
-      final mm = dt.minute.toString().padLeft(2, '0');
-      final ampm = dt.hour >= 12 ? "PM" : "AM";
-      return "$hh:$mm $ampm";
+      final dtUtc = DateTime.parse(timestamp).toUtc();
+      final phTime = dtUtc.add(const Duration(hours: 8));
+
+      final hour = phTime.hour > 12
+          ? phTime.hour - 12
+          : phTime.hour == 0
+          ? 12
+          : phTime.hour;
+
+      final minute = phTime.minute.toString().padLeft(2, '0');
+      final ampm = phTime.hour >= 12 ? "PM" : "AM";
+
+      return "$hour:$minute $ampm";
     } catch (_) {
       return "--:--";
     }
@@ -250,40 +247,35 @@ class _AlertsPageState extends State<AlertsPage> {
                     onRefresh: fetchAlerts,
                     child: isLoading
                         ? const Center(
-                            child:
-                                CircularProgressIndicator(color: Colors.white))
+                        child: CircularProgressIndicator(color: Colors.white))
                         : ListView.builder(
-                            padding: const EdgeInsets.all(16),
-                            itemCount: alerts.length,
-                            itemBuilder: (context, index) {
-                              final alert = alerts[index];
-                              final time =
-                                  formatLocalTime(alert['created_at'] ?? "");
+                      padding: const EdgeInsets.all(16),
+                      itemCount: alerts.length,
+                      itemBuilder: (context, index) {
+                        final alert = alerts[index];
+                        final time = formatLocalTime(alert['created_at'] ?? "");
 
-                              return Dismissible(
-                                key: Key(alert['id'].toString()),
-                                direction: DismissDirection.endToStart,
-                                onDismissed: (_) =>
-                                    deleteOne(alert['id'], index),
-                                background: Container(
-                                  alignment: Alignment.centerRight,
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 20),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.7),
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  child: const Icon(Icons.delete,
-                                      color: Colors.white),
-                                ),
-                                child: _alertCard(
-                                  mode: mode,
-                                  msg: alert['message'],
-                                  time: time,
-                                ),
-                              );
-                            },
+                        return Dismissible(
+                          key: Key(alert['id'].toString()),
+                          direction: DismissDirection.endToStart,
+                          onDismissed: (_) => deleteOne(alert['id'], index),
+                          background: Container(
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.7),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Icon(Icons.delete, color: Colors.white),
                           ),
+                          child: _alertCard(
+                            mode: mode,
+                            msg: alert['message'],
+                            time: time,
+                          ),
+                        );
+                      },
+                    ),
                   ),
                 ),
               ],

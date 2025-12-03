@@ -26,36 +26,61 @@ final FlutterLocalNotificationsPlugin localNotif =
     FlutterLocalNotificationsPlugin();
 
 const AndroidNotificationChannel mainChannel = AndroidNotificationChannel(
-  'default_channel',
+  'smartpayan_alerts_v2',
   'SmartPayan Alerts',
   description: 'Notifications for device events',
   importance: Importance.high,
 );
 
-// REQUIRED FOR ANDROID BACKGROUND HANDLING
+// ANDROID BACKGROUND HANDLING
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
-  final data = message.data;
+  // Ensure notification channel is ready
+  final androidPlugin = localNotif
+      .resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
+  await androidPlugin?.createNotificationChannel(mainChannel);
 
-  final notifTitle = data['title'] ?? "SmartPayan Alert";
-  final notifBody = data['body'] ?? "";
+  print("[BG] Raw FCM message: ${message.data}");
 
-  localNotif.show(
-    DateTime.now().millisecondsSinceEpoch ~/ 1000,   // UNIQUE ID
-    notifTitle,
-    notifBody,
+  if (!message.data.containsKey('event_type')) {
+    print("[BG] Ignoring non-SmartPayan FCM message");
+    return;
+  }
+
+  // Extract real values
+  final title = message.data['title']?.toString().trim() ?? "";
+  final body  = message.data['message']?.toString().trim() ?? "";
+
+  // Extra safety: ignore malformed messages
+  if (title.isEmpty && body.isEmpty) {
+    print("[BG] Ignoring SmartPayan message with empty title/body");
+    return;
+  }
+
+  await localNotif.show(
+    DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    title.isEmpty ? "SmartPayan Alert" : title,
+    body,
     const NotificationDetails(
       android: AndroidNotificationDetails(
-        'default_channel',
+        'smartpayan_alerts_v2',
         'SmartPayan Alerts',
+        channelDescription: 'Notifications for device events',
         importance: Importance.high,
         priority: Priority.high,
+        groupKey: 'smartpayan_group',
+        setAsGroupSummary: false,
+        groupAlertBehavior: GroupAlertBehavior.all,
       ),
     ),
   );
 }
+
+
+
 
 // -----------------------------------------------------------
 // MAIN INIT
@@ -65,11 +90,18 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
+  // === DISABLE AUTO-NOTIFICATIONS ===
+  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+    alert: false,
+    badge: false,
+    sound: false,
+  );
+
   // Init Supabase
   await Supabase.initialize(
     url: 'https://dbwhtzoahlzgpiuhqvlv.supabase.co',
     anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0.Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0.Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8',
   );
 
   // Notification permission
@@ -79,20 +111,20 @@ void main() async {
   const initSettings = InitializationSettings(
     android: AndroidInitializationSettings('@mipmap/ic_launcher'),
   );
-
   await localNotif.initialize(initSettings);
 
   // Create notification channel
   final androidPlugin =
-      localNotif.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+  localNotif.resolvePlatformSpecificImplementation<
+      AndroidFlutterLocalNotificationsPlugin>();
   await androidPlugin?.createNotificationChannel(mainChannel);
 
-  // Background handler register
+  // Background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(const MyApp());
 }
+
 
 // -----------------------------------------------------------
 // MAIN APP WIDGET
@@ -179,25 +211,29 @@ class _HomeScreenState extends State<HomeScreen> {
     registerDeviceToken(safeId);
 
     // FOREGROUND PUSH NOTIFICATIONS
-    FirebaseMessaging.onMessage.listen((message) {
-      final data = message.data;
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      if (message.data.isNotEmpty) {
+        final title = message.data['title'] ?? "SmartPayan Alert";
+        final body  = message.data['message'] ?? "";  // <-- FIXED KEY NAME
 
-      final notifTitle = data['title'] ?? "SmartPayan Alert";
-      final notifBody = data['body'] ?? "";
-
-      localNotif.show(
-        DateTime.now().millisecondsSinceEpoch ~/ 1000, // UNIQUE ID
-        notifTitle,
-        notifBody,
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'default_channel',
-            'SmartPayan Alerts',
-            importance: Importance.high,
-            priority: Priority.high,
+        await localNotif.show(
+          DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          title,
+          body,
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              'smartpayan_alerts_v2',
+              'SmartPayan Alerts',
+              channelDescription: 'Notifications for device events',
+              importance: Importance.high,
+              priority: Priority.high,
+              groupKey: 'smartpayan_group',
+              setAsGroupSummary: false,
+              groupAlertBehavior: GroupAlertBehavior.all,
+            ),
           ),
-        ),
-      );
+        );
+      }
     });
   }
 

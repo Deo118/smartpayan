@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'dart:async'; 
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../backgrounds/background_engine.dart';
 import '../notifications/supabase_notif.dart';
 
 class DashboardPage extends StatefulWidget {
   final String deviceId;
-  final Map<String, dynamic> sensorData; 
+  final Map<String, dynamic> sensorData;
 
   const DashboardPage({
     super.key,
@@ -27,72 +29,76 @@ class _DashboardPageState extends State<DashboardPage> {
   StreamSubscription<DatabaseEvent>? sensorDataSubscription;
   Timer? offlineCheckTimer;
 
-  // Offline detection variables
-  bool isOnline = true; // Start as online (will update based on RTDB)
+  // Device status
+  bool isOnline = true;
   DateTime? lastUpdateTime;
-  static const int offlineThresholdSeconds = 30; // Threshold: 30s (adjust as needed)
+  static const int offlineThresholdSeconds = 30;
 
   @override
   void initState() {
     super.initState();
 
-    // Command reference 
-    commandRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/commands');
+    // 🔥 1. Immediate Supabase check
+    loadDeviceOnlineStatus();
 
-    // Sensor data reference and listener
-    sensorDataRef = FirebaseDatabase.instance.ref('devices/${widget.deviceId}/sensorData');
-    sensorDataSubscription = sensorDataRef!.onValue.listen((event) {
-      if (event.snapshot.value != null) {
-        // Update last update time on any change
-        setState(() {
-          final wasOffline = !isOnline;
-          lastUpdateTime = DateTime.now();
-          isOnline = true; // Mark as online on new data
+    // 2. RTDB command reference
+    commandRef = FirebaseDatabase.instance
+        .ref('devices/${widget.deviceId}/commands');
 
-          if (wasOffline) {
-            // device just came back online
-            sendSupabaseNotif(
-              "Device Online",
-              "SmartPayan device is back online.",
-              "online",
-              widget.deviceId.replaceAll(':', '_'),
-            );
+    // 3. RTDB sensor listener
+    sensorDataRef = FirebaseDatabase.instance
+        .ref('devices/${widget.deviceId}/sensorData');
+
+    sensorDataSubscription =
+        sensorDataRef!.onValue.listen((event) {
+          if (event.snapshot.value != null) {
+            setState(() {
+              final wasOffline = !isOnline;
+              lastUpdateTime = DateTime.now();
+              isOnline = true;
+
+              if (wasOffline) {
+                sendSupabaseNotif(
+                  "Device Online",
+                  "SmartPayan device is back online.",
+                  "online",
+                  widget.deviceId.replaceAll(':', '_'),
+                );
+              }
+            });
+
+            print(
+                "Sensor data updated at $lastUpdateTime");
           }
         });
 
-        print("Sensor data updated at $lastUpdateTime"); // Debug log
-      }
-    });
+    // 4. Offline detector
+    offlineCheckTimer =
+        Timer.periodic(const Duration(seconds: 5),
+                (_) {
+              if (lastUpdateTime == null) return;
 
-    // Periodic timer to check for offline status
-    offlineCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (lastUpdateTime != null) {
-        final timeSinceLastUpdate = DateTime.now().difference(lastUpdateTime!);
-        if (timeSinceLastUpdate > const Duration(seconds: offlineThresholdSeconds)) {
-          if (isOnline == true) {
-            // device just changed from online -> offline
-            sendSupabaseNotif(
-              "Device Offline",
-              "SmartPayan device has stopped sending sensor data.",
-              "offline",
-              widget.deviceId.replaceAll(':', '_'),
-            );
-          }
-          setState(() {
-            isOnline = false;
-          });
+              final diff =
+              DateTime.now().difference(lastUpdateTime!);
 
-          print("Device offline detected (last update: $lastUpdateTime)"); // Debug log
-        }
-      } else {
-        // If no data ever received, consider offline after threshold from app start
-        if (DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(0)) > const Duration(seconds: offlineThresholdSeconds)) {
-          setState(() {
-            isOnline = false;
-          });
-        }
-      }
-    });
+              if (diff >
+                  const Duration(
+                      seconds: offlineThresholdSeconds)) {
+                if (isOnline == true) {
+                  sendSupabaseNotif(
+                    "Device Offline",
+                    "SmartPayan device has stopped sending sensor data.",
+                    "offline",
+                    widget.deviceId.replaceAll(':', '_'),
+                  );
+                }
+
+                setState(() => isOnline = false);
+
+                print(
+                    "Device offline detected (last update: $lastUpdateTime)");
+              }
+            });
   }
 
   @override
@@ -102,39 +108,75 @@ class _DashboardPageState extends State<DashboardPage> {
     super.dispose();
   }
 
+  // 🔥 INSTANT SUPABASE DEVICE STATUS FETCH
+  Future<void> loadDeviceOnlineStatus() async {
+    try {
+      final supabase = Supabase.instance.client;
+
+      final response = await supabase
+          .from('devices')
+          .select('is_online, last_seen')
+          .eq('device_id', widget.deviceId)
+          .single();
+
+      if (response != null) {
+        final online = response['is_online'] == true;
+
+        setState(() {
+          isOnline = online;
+          lastUpdateTime = online
+              ? DateTime.now()
+              : (response['last_seen'] != null
+              ? DateTime.parse(response['last_seen'])
+              : null);
+        });
+
+        print("Supabase online state = $online");
+      }
+    } catch (e) {
+      print("Error loading Supabase state: $e");
+    }
+  }
+
   void sendCommand(String key, dynamic value) {
     commandRef?.update({key: value});
   }
 
-  // Helper to get slider value from RTDB state
+  // Convert RTDB state to slider value
   double _getSliderFromState(String? state) {
     if (state == "extended") return 1.0;
     if (state == "retracted") return 0.0;
-    return 0.5; // Default (though now unused)
+    return 0.5;
   }
 
   @override
   Widget build(BuildContext context) {
     final mode = BackgroundProvider.of(context).mode;
 
-    final data = widget.sensorData; // Use passed data (initial/cached)
+    final data = widget.sensorData;
 
-    int light = (data['lightLevel'] as num?)?.toInt() ?? 600;
+    int light = (data['lightLevel'] as num?)
+        ?.toInt() ??
+        600;
     bool rain = data['rain'] == true;
-    int humidity = (data['humidity'] as num?)?.toInt() ?? 70;
-    double temperature = (data['temperature'] as num?)?.toDouble() ?? 25.0;
-    String? clotheslineState = data['state'] as String?;
+    int humidity =
+        (data['humidity'] as num?)?.toInt() ?? 70;
+    double temperature =
+        (data['temperature'] as num?)?.toDouble() ??
+            25.0;
+    String? clotheslineState =
+    data['state'] as String?;
 
-    // Update slider based on mode
     if (isAuto) {
-      sliderValue = _getSliderFromState(clotheslineState); // Follow RTDB in auto mode
-      actionMessage = null; // Clear message in auto mode
-    } else {
-      // In manual mode, slider value is user-controlled
+      sliderValue =
+          _getSliderFromState(clotheslineState);
+      actionMessage = null;
     }
 
-    // Clear message if RTDB state matches slider value
-    if (clotheslineState == (sliderValue == 1.0 ? "extended" : "retracted")) {
+    if (clotheslineState ==
+        (sliderValue == 1.0
+            ? "extended"
+            : "retracted")) {
       actionMessage = null;
     }
 
@@ -145,7 +187,8 @@ class _DashboardPageState extends State<DashboardPage> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                CrossAxisAlignment.start,
                 children: [
                   Text(
                     "Dashboard",
@@ -156,46 +199,63 @@ class _DashboardPageState extends State<DashboardPage> {
                       shadows: [
                         Shadow(
                           blurRadius: 6,
-                          color: Colors.black.withOpacity(0.6),
+                          color: Colors.black
+                              .withOpacity(0.6),
                         )
                       ],
                     ),
                   ),
 
-                  // Offline message (now dynamic)
                   if (!isOnline)
                     const Text(
                       "Device Offline - Showing cached data",
-                      style: TextStyle(color: Colors.red, fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: Colors.red,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold),
                     ),
 
                   const SizedBox(height: 20),
 
                   _glassCard(
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment:
+                      MainAxisAlignment
+                          .spaceBetween,
                       children: [
                         _statusTile(
                           icon: Icons.cloud,
                           label: "Rain",
-                          value: rain ? "Detected" : "None",
-                          color: rain ? Colors.red : Colors.greenAccent,
+                          value:
+                          rain ? "Detected" : "None",
+                          color: rain
+                              ? Colors.red
+                              : Colors.greenAccent,
                         ),
                         Row(
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.settings,
-                                  color: Colors.white, size: 32),
+                              icon: const Icon(
+                                  Icons.settings,
+                                  color: Colors.white,
+                                  size: 32),
                               onPressed: () {
-                                setState(() => isAuto = !isAuto);
-                                sendCommand('autoMode', isAuto);
+                                setState(() =>
+                                isAuto =
+                                !isAuto);
+                                sendCommand(
+                                    'autoMode',
+                                    isAuto);
                               },
                             ),
                             Text(
-                              isAuto ? "Auto Mode" : "Manual Mode",
+                              isAuto
+                                  ? "Auto Mode"
+                                  : "Manual Mode",
                               style: const TextStyle(
                                   color: Colors.white,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight:
+                                  FontWeight.bold,
                                   fontSize: 18),
                             ),
                           ],
@@ -224,7 +284,8 @@ class _DashboardPageState extends State<DashboardPage> {
                         _sensorTile(
                           icon: Icons.thermostat,
                           label: "Temperature",
-                          value: "${temperature.toStringAsFixed(1)}°C",
+                          value:
+                          "${temperature.toStringAsFixed(1)}°C",
                         ),
                       ],
                     ),
@@ -236,31 +297,53 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: Column(
                       children: [
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          mainAxisAlignment:
+                          MainAxisAlignment
+                              .spaceBetween,
                           children: [
                             const Text(
                               "Clothesline Position",
                               style: TextStyle(
-                                  color: Colors.white70, fontSize: 16),
+                                  color: Colors.white70,
+                                  fontSize: 16),
                             ),
                             InkWell(
                               onTap: () {
-                                setState(() => isAuto = !isAuto);
-                                sendCommand('autoMode', isAuto);
+                                setState(() =>
+                                isAuto =
+                                !isAuto);
+                                sendCommand(
+                                    'autoMode',
+                                    isAuto);
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border:
-                                      Border.all(color: Colors.white30),
+                                padding:
+                                const EdgeInsets
+                                    .symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration:
+                                BoxDecoration(
+                                  color: Colors.white
+                                      .withOpacity(
+                                      0.15),
+                                  borderRadius:
+                                  BorderRadius
+                                      .circular(
+                                      12),
+                                  border: Border.all(
+                                      color: Colors
+                                          .white30),
                                 ),
                                 child: Text(
-                                  isAuto ? "Auto" : "Manual",
+                                  isAuto
+                                      ? "Auto"
+                                      : "Manual",
                                   style:
-                                      const TextStyle(color: Colors.white),
+                                  const TextStyle(
+                                      color: Colors
+                                          .white),
                                 ),
                               ),
                             ),
@@ -269,49 +352,73 @@ class _DashboardPageState extends State<DashboardPage> {
                         Slider(
                           value: sliderValue,
                           onChanged: isAuto
-                              ? null // Disabled in auto mode
+                              ? null
                               : (v) {
-                                  double newValue = v.roundToDouble();
-                                  setState(() {
-                                    sliderValue = newValue;
-                                    actionMessage = newValue == 1.0
-                                        ? "Clothesline extending..."
-                                        : "Clothesline retracting...";
-                                  });
-                                  sendCommand('clotheslinePosition', newValue);
-                                  // Debug: Print to console to verify
-                                  print("Slider changed to $newValue, message: $actionMessage");
-                                },
+                            double newValue =
+                            v.roundToDouble();
+                            setState(() {
+                              sliderValue =
+                                  newValue;
+                              actionMessage =
+                              newValue ==
+                                  1.0
+                                  ? "Clothesline extending..."
+                                  : "Clothesline retracting...";
+                            });
+                            sendCommand(
+                                'clotheslinePosition',
+                                newValue);
+                            print(
+                                "Slider changed to $newValue, message: $actionMessage");
+                          },
                           min: 0,
                           max: 1,
-                          divisions: 1, // Always 1: Only 0 and 1 allowed
-                          activeColor: isAuto ? Colors.grey : Colors.greenAccent, // Gray in auto
-                          inactiveColor: Colors.white30,
+                          divisions: 1,
+                          activeColor: isAuto
+                              ? Colors.grey
+                              : Colors.greenAccent,
+                          inactiveColor:
+                          Colors.white30,
                         ),
                         const Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          mainAxisAlignment:
+                          MainAxisAlignment
+                              .spaceBetween,
                           children: [
                             Text("Retracted",
-                                style: TextStyle(color: Colors.white70)),
+                                style: TextStyle(
+                                    color: Colors
+                                        .white70)),
                             Text("Extended",
-                                style: TextStyle(color: Colors.white70)),
+                                style: TextStyle(
+                                    color: Colors
+                                        .white70)),
                           ],
                         ),
-                        if (actionMessage != null) // Show message if present
+                        if (actionMessage != null)
                           Container(
-                            margin: const EdgeInsets.only(top: 8),
-                            padding: const EdgeInsets.all(8),
+                            margin:
+                            const EdgeInsets.only(
+                                top: 8),
+                            padding:
+                            const EdgeInsets.all(
+                                8),
                             decoration: BoxDecoration(
-                              color: Colors.black.withOpacity(0.5),
-                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.black
+                                  .withOpacity(0.5),
+                              borderRadius:
+                              BorderRadius
+                                  .circular(8),
                             ),
                             child: Text(
                               actionMessage!,
-                              style: const TextStyle(
+                              style:
+                              const TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
                               ),
-                              textAlign: TextAlign.center,
+                              textAlign:
+                              TextAlign.center,
                             ),
                           ),
                       ],
@@ -335,7 +442,8 @@ class _DashboardPageState extends State<DashboardPage> {
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.2)),
+        border:
+        Border.all(color: Colors.white.withOpacity(0.2)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.2),
@@ -354,11 +462,15 @@ class _DashboardPageState extends State<DashboardPage> {
     Color color = Colors.white,
   }) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment:
+      CrossAxisAlignment.start,
       children: [
         Icon(icon, color: color, size: 32),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 14)),
+        Text(label,
+            style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14)),
         Text(
           value,
           style: const TextStyle(
@@ -380,7 +492,10 @@ class _DashboardPageState extends State<DashboardPage> {
       children: [
         Icon(icon, color: Colors.white, size: 30),
         const SizedBox(width: 14),
-        Text(label, style: const TextStyle(fontSize: 16, color: Colors.white70)),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 16,
+                color: Colors.white70)),
         const Spacer(),
         Text(
           value,
