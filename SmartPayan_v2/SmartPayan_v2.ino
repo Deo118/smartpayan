@@ -1,0 +1,509 @@
+/*  
+  SmartPayan v4 — Full RTDB Sync + Supabase Integration + Heartbeat System
+
+  --- DEVICE CONTROL & LOGIC ---
+  - Auto + Manual control with slider (snap to 0 or 1, no mid values)
+  - Weather-aware automation (rain, humidity, light-based decisions)
+  - Clean bidirectional logic:
+        * App commands → ESP32
+        * ESP32 state → App + Supabase
+  - Motor actions fully synchronized with RTDB state
+  - Prevents override conflicts between Auto vs Manual mode
+  - Motor stops automatically after timed movement (safe movement cycle)
+
+  --- SENSORS & EVENT SYSTEM ---
+  - Event-based rain detection (immediate push when rain starts)
+  - DHT22 temperature & humidity monitoring
+  - BH1750 light sensor with increased sensitivity
+        * Maps 0–10,000 lux → 0–1000 range for more responsive behavior
+  - Rain detected using BOTH analog + digital channels
+
+  --- FIREBASE REALTIME DATABASE (RTDB) ---
+  - Syncs commands (autoMode, slider)
+  - Updates real-time clothesline state (extended/retracted/moving)
+  - Sends full sensorData payload every interval
+  - Reads and follows app-triggered state changes
+
+  --- SUPABASE CLOUD INTEGRATION ---
+  - Sends push notifications to Supabase Edge Function
+        * Clothesline state updates (extended/retracted)
+        * Rain or weather-triggered actions
+  - Uses ONLY the ANON KEY on device (safe for IoT)
+  - Follows secure server-design: service role key used only on backend
+
+  --- SUPABASE HEARTBEAT SYSTEM ---
+  - Sends heartbeat to Supabase every 30 seconds
+  - Updates:
+        * device_id
+        * mac_address
+        * last_seen timestamp
+  - Enables accurate online/offline detection on server
+  - Heartbeat continues independently of sensor timing
+
+  --- NETWORK & SAFETY ---
+  - WiFi connection check before every cloud request
+  - Silent fail-safe if WiFi is down (no crash)
+  - Clean HTTP handling to prevent memory leaks
+
+  --- CODE STYLE & STRUCTURE ---
+  - CamelCase identifiers for uniform readability
+  - Modularized sensor reading, logic evaluation, and motor control
+  - Highly maintainable & production-ready IoT firmware structure
+*/
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <BH1750.h>
+
+// === WIFI ===
+const char* wifiSsidVal = "PLDTHOMEFIBRGcfn2";
+const char* wifiPasswordVal = "PLDTWIFIDizon12162404";
+
+// === FIREBASE RTDB ===
+const char* firebaseUrlVal =
+  "https://smartpayan-f7ea7-default-rtdb.asia-southeast1.firebasedatabase.app/devices/";
+
+// === SUPABASE EDGE FUNCTIONS ===
+const char* supabaseNotifUrl =
+  "https://dbwhtzoahlzgpiuhqvlv.supabase.co/functions/v1/send-notif";
+
+const char* supabaseHeartbeatUrl =
+  "https://dbwhtzoahlzgpiuhqvlv.supabase.co/functions/v1/heartbeat";
+
+const char* supabaseAnonKey =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+  "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0."
+  "Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8";
+
+// === PINS ===
+#define dhtPinVal 4
+#define dhtTypeVal DHT22
+#define rainAnalogPinVal 34
+#define rainDigitalPinVal 35
+#define motorIn1Val 25
+#define motorIn2Val 26
+#define motorEnaVal 27
+#define i2cSdaVal 21
+#define i2cSclVal 22
+
+// === CONSTANTS / TIMINGS ===
+int rainThresholdVal = 2500;
+int sensorReadIntervalVal = 5000;
+int commandReadIntervalVal = 1000;
+int dataUpdateIntervalVal = 10000;
+int heartbeatIntervalVal = 30000;
+int motorSpeedVal = 80;
+
+// notification cooldown (ms) - prevents repeated notifications within this window
+const unsigned long notificationCooldownMs = 1000UL;
+
+// === OBJECTS ===
+DHT dhtVal(dhtPinVal, dhtTypeVal);
+BH1750 lightMeterVal;
+
+enum ClotheslineStateVal { Extended, Retracted, Moving };
+ClotheslineStateVal currentStateVal = Retracted;
+ClotheslineStateVal rtdbStateVal = Retracted;
+
+// Track last-notified state to avoid duplicate notifications
+ClotheslineStateVal lastNotifiedState = Retracted;
+
+// Track previous state written to RTDB to avoid repeated PUTs
+ClotheslineStateVal previousStateForDb = Retracted;
+
+bool autoModeVal = true;
+float sliderValueVal = 0.0;
+
+float tempVal = 0;
+float humidityVal = 0;
+float luxRawVal = 0;
+float lightLevelVal = 0;
+bool rainDetectedVal = false;
+
+// === Device info ===
+String realMacVal;
+String deviceKeyVal;
+
+// === timers ===
+unsigned long lastSensorReadVal = 0;
+unsigned long lastDataUpdateVal = 0;
+unsigned long lastCommandReadVal = 0;
+unsigned long lastHeartbeatVal = 0;
+unsigned long lastNotificationSentAt = 0;
+
+// -------------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+  delay(10);
+  Serial.println("\nSmartPayan v4 Ready...");
+
+  pinMode(rainAnalogPinVal, INPUT);
+  pinMode(rainDigitalPinVal, INPUT);
+  pinMode(motorIn1Val, OUTPUT);
+  pinMode(motorIn2Val, OUTPUT);
+  pinMode(motorEnaVal, OUTPUT);
+
+  dhtVal.begin();
+  Wire.begin(i2cSdaVal, i2cSclVal);
+  if (!lightMeterVal.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
+    Serial.println("Warning: BH1750 init failed");
+  }
+
+  Serial.print("Connecting WiFi");
+  WiFi.begin(wifiSsidVal, wifiPasswordVal);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(200);
+  }
+
+  realMacVal = WiFi.macAddress();
+  deviceKeyVal = realMacVal;
+  deviceKeyVal.replace(":", "_");
+
+  Serial.println("\nConnected as:");
+  Serial.println(deviceKeyVal);
+
+  // Initialize the two tracking variables so logic is consistent
+  lastNotifiedState = currentStateVal;
+  previousStateForDb = currentStateVal;
+  lastNotificationSentAt = 0;
+}
+
+// -------------------------------------------------------
+void loop() {
+  unsigned long ms = millis();
+
+  if (ms - lastSensorReadVal >= (unsigned long)sensorReadIntervalVal) {
+    lastSensorReadVal = ms;
+    readSensorVals();
+  }
+
+  if (ms - lastCommandReadVal >= (unsigned long)commandReadIntervalVal) {
+    lastCommandReadVal = ms;
+    readCommandsVal();
+    readRtdbStateVal();
+  }
+
+  if (ms - lastDataUpdateVal >= (unsigned long)dataUpdateIntervalVal) {
+    lastDataUpdateVal = ms;
+    sendSensorDataVal();
+  }
+
+  if (ms - lastHeartbeatVal >= (unsigned long)heartbeatIntervalVal) {
+    lastHeartbeatVal = ms;
+    sendHeartbeatVal();
+  }
+
+  applyControlLogicVal();
+
+  delay(10);
+}
+
+// -------------------------------------------------------
+// HEARTBEAT
+// -------------------------------------------------------
+void sendHeartbeatVal() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[Heartbeat] No WiFi.");
+    return;
+  }
+
+  HTTPClient http;
+  http.begin(supabaseHeartbeatUrl);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + supabaseAnonKey);
+
+  String json = "{\"device_id\":\"" + deviceKeyVal + "\","
+                "\"mac_address\":\"" + realMacVal + "\"}";
+
+  int code = http.POST(json);
+  String resp = http.getString();
+  Serial.printf("[Heartbeat] %d\n", code);
+  Serial.println(resp);
+
+  http.end();
+}
+
+// -------------------------------------------------------
+// NOTIFICATIONS
+// returns true on HTTP 2xx success, false otherwise
+// -------------------------------------------------------
+bool sendSupabaseNotification(String title, String message, String eventType) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[Supabase] No WiFi, skipping notification.");
+    return false;
+  }
+
+  // Rate-limit notifications to avoid spamming
+  unsigned long now = millis();
+  if (now - lastNotificationSentAt < notificationCooldownMs) {
+    Serial.println("[Supabase] Notification suppressed by cooldown.");
+    return false;
+  }
+
+  HTTPClient http;
+  http.begin(supabaseNotifUrl);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + supabaseAnonKey);
+
+  String body = "{\"title\":\"" + title + "\","
+                "\"message\":\"" + message + "\","
+                "\"event_type\":\"" + eventType + "\","
+                "\"device_id\":\"" + deviceKeyVal + "\"}";
+
+  int code = http.POST(body);
+  String resp = http.getString();
+
+  Serial.printf("[Supabase] HTTP %d\n", code);
+  Serial.println(resp);
+
+  http.end();
+
+  if (code >= 200 && code < 300) {
+    lastNotificationSentAt = now;
+    return true;
+  } else {
+    return false;
+  }
+}
+
+// -------------------------------------------------------
+void readSensorVals() {
+  float t = dhtVal.readTemperature();
+  float h = dhtVal.readHumidity();
+
+  if (!isnan(t)) tempVal = t;
+  if (!isnan(h)) humidityVal = h;
+
+  float lux = lightMeterVal.readLightLevel();
+  if (lux >= 0) luxRawVal = lux;
+
+  // Map 0-10000 lux => 0-1000 (as before)
+  lightLevelVal = min(10000.0f, luxRawVal) / 10.0f;
+
+  int a = analogRead(rainAnalogPinVal);
+  int d = digitalRead(rainDigitalPinVal);
+
+  bool prev = rainDetectedVal;
+  rainDetectedVal = (a < rainThresholdVal) || (d == LOW);
+
+  // If rain starts, send immediate sensor update + notify if state changes
+  if (rainDetectedVal && !prev) {
+    sendSensorDataVal();
+  }
+
+  // Keep serial debug consistent (will show live sensor values)
+  printDebugVal();
+}
+
+// -------------------------------------------------------
+void readCommandsVal() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/commands.json";
+
+  HTTPClient http;
+  http.begin(url);
+  int code = http.GET();
+  if (code <= 0) { http.end(); return; }
+
+  String payload = http.getString();
+  http.end();
+
+  autoModeVal = payload.indexOf("\"autoMode\":true") != -1;
+
+  int p = payload.indexOf("clotheslinePosition");
+  if (p != -1) {
+    int col = payload.indexOf(":", p);
+    int end = payload.indexOf(",", col);
+    if (end == -1) end = payload.indexOf("}", col);
+    sliderValueVal = payload.substring(col + 1, end).toFloat();
+  }
+
+  if (!autoModeVal) {
+    if (sliderValueVal <= 0.1f) retractVal();
+    else if (sliderValueVal >= 0.9f) extendVal();
+  }
+}
+
+// -------------------------------------------------------
+void readRtdbStateVal() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData/state.json";
+
+  HTTPClient http;
+  http.begin(url);
+  int code = http.GET();
+  if (code <= 0) { http.end(); return; }
+
+  String state = http.getString();
+  http.end();
+
+  if (state.indexOf("extended") != -1) rtdbStateVal = Extended;
+  else if (state.indexOf("retracted") != -1) rtdbStateVal = Retracted;
+  // else ignore unknown / moving states
+
+  // If app changed state manually, ESP follows (only when NOT auto)
+  if (rtdbStateVal != currentStateVal && !autoModeVal) {
+    if (rtdbStateVal == Extended) extendVal();
+    else retractVal();
+  }
+}
+
+// -------------------------------------------------------
+void applyControlLogicVal() {
+  if (!autoModeVal) return;
+
+  bool shouldRetract = false;
+  bool shouldExtend = false;
+
+  if (rainDetectedVal) shouldRetract = true;
+  else if (lightLevelVal < 200) shouldRetract = true;
+  else if (humidityVal > 85) shouldRetract = true;
+  else shouldExtend = true;
+
+  if (shouldRetract && currentStateVal != Retracted) retractVal();
+  if (shouldExtend && currentStateVal != Extended) extendVal();
+}
+
+// -------------------------------------------------------
+void extendVal() {
+  currentStateVal = Moving;
+  digitalWrite(motorIn1Val, HIGH);
+  digitalWrite(motorIn2Val, LOW);
+  analogWrite(motorEnaVal, motorSpeedVal);
+  delay(1000);
+  stopMotorVal();
+  currentStateVal = Extended;
+  updateStateVal();
+}
+
+void retractVal() {
+  currentStateVal = Moving;
+  digitalWrite(motorIn1Val, LOW);
+  digitalWrite(motorIn2Val, HIGH);
+  analogWrite(motorEnaVal, motorSpeedVal);
+  delay(1000);
+  stopMotorVal();
+  currentStateVal = Retracted;
+  updateStateVal();
+}
+
+void stopMotorVal() {
+  digitalWrite(motorIn1Val, LOW);
+  digitalWrite(motorIn2Val, LOW);
+  analogWrite(motorEnaVal, 0);
+}
+
+// -------------------------------------------------------
+void updateStateVal() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  // Only write to RTDB if state actually changed — avoids repeated PUTs
+  if (currentStateVal == previousStateForDb) {
+    // But still consider notification logic: if state hasn't been notified yet, notify
+    if (currentStateVal != lastNotifiedState) {
+      // Respect cooldown
+      unsigned long now = millis();
+      if (now - lastNotificationSentAt >= notificationCooldownMs) {
+        if (currentStateVal == Extended) {
+          if (sendSupabaseNotification("Clothesline Update",
+                                      "Good weather detected. Clothesline extended.",
+                                      "clothesline_state")) {
+            lastNotifiedState = currentStateVal;
+          }
+        } else {
+          if (sendSupabaseNotification("Clothesline Update",
+                                      "Rain or low light detected. Clothesline retracted.",
+                                      "clothesline_state")) {
+            lastNotifiedState = currentStateVal;
+          }
+        }
+      } else {
+        Serial.println("[UpdateState] Notification suppressed by cooldown.");
+      }
+    }
+    return;
+  }
+
+  // Write to RTDB
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData/state.json";
+
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+
+  String payload = "\"" + getStateStringVal(currentStateVal) + "\"";
+  int code = http.PUT(payload);
+  String resp = http.getString();
+  Serial.printf("[RTDB PUT State] %d\n", code);
+  Serial.println(resp);
+  http.end();
+
+  // update remembered state for DB
+  previousStateForDb = currentStateVal;
+
+  // Only notify if the state actually changed relative to lastNotifiedState (prevents spam)
+  if (currentStateVal != lastNotifiedState) {
+    if (currentStateVal == Extended) {
+      if (sendSupabaseNotification("Clothesline Update",
+                                  "Good weather detected. Clothesline extended.",
+                                  "clothesline_state")) {
+        lastNotifiedState = currentStateVal;
+      }
+    } else {
+      if (sendSupabaseNotification("Clothesline Update",
+                                  "Rain or low light detected. Clothesline retracted.",
+                                  "clothesline_state")) {
+        lastNotifiedState = currentStateVal;
+      }
+    }
+  }
+}
+
+// -------------------------------------------------------
+void sendSensorDataVal() {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData.json";
+
+  String json = "{\"macAddress\":\"" + realMacVal + "\","
+                "\"temperature\":" + String(tempVal, 1) + ","
+                "\"humidity\":" + String(humidityVal, 1) + ","
+                "\"lightLevel\":" + String(lightLevelVal, 1) + ","
+                "\"rain\":" + String(rainDetectedVal ? "true" : "false") + ","
+                "\"state\":\"" + getStateStringVal(currentStateVal) + "\"}";
+
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.PUT(json);
+  String resp = http.getString();
+  Serial.printf("[Sensor PUT] %d\n", code);
+  Serial.println(resp);
+  http.end();
+}
+
+// -------------------------------------------------------
+String getStateStringVal(ClotheslineStateVal s) {
+  if (s == Extended) return "extended";
+  if (s == Retracted) return "retracted";
+  return "moving";
+}
+
+// -------------------------------------------------------
+void printDebugVal() {
+  Serial.println("---- SmartPayan Status ----");
+  Serial.printf("AutoMode: %s\n", autoModeVal ? "true" : "false");
+  Serial.printf("Slider: %.2f\n", sliderValueVal);
+  Serial.printf("State: %s\n", getStateStringVal(currentStateVal).c_str());
+  Serial.printf("RTDB State: %s\n", getStateStringVal(rtdbStateVal).c_str());
+  Serial.printf("Temp: %.1f\n", tempVal);
+  Serial.printf("Humidity: %.1f\n", humidityVal);
+  Serial.printf("Light: %.1f (mapped)\n", lightLevelVal);
+  Serial.printf("Rain: %s\n", rainDetectedVal ? "YES" : "NONE");
+  Serial.println("--------------------------\n");
+}

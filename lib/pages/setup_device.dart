@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'dart:async';
-import 'package:smartpayan/main.dart';
+import 'package:shared_preferences/shared_preferences.dart';  
+import '../widgets/back_button.dart';
+import '../main.dart';
 
 class SetupDevicePage extends StatefulWidget {
   final String userDocId;
@@ -18,156 +20,186 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   final TextEditingController macController = TextEditingController();
 
   bool loading = false;
-  String errorMessage = "";
   bool verifying = false;
+  String errorMessage = "";
 
-  void saveDevice() {  // Renamed from Future<void> to void, and removed async since no save here
+  // SAVE BUTTON
+  void saveDevice() {
     setState(() {
       loading = true;
       errorMessage = "";
     });
 
-    String deviceName = deviceNameController.text.trim();
-    String mac = macController.text.trim().toUpperCase();
+    String name = deviceNameController.text.trim();
+    String macRaw = macController.text.trim().toUpperCase();
 
-    if (deviceName.isEmpty || mac.isEmpty) {
+    if (name.isEmpty || macRaw.isEmpty) {
       setState(() {
-        errorMessage = "Please fill in all fields.";
         loading = false;
+        errorMessage = "Please fill in all fields.";
       });
       return;
     }
-
-    // Check if device already exists (optional, but keep for UX)
-    // Note: We can't check Firestore here since we're not saving yet. You could add a pre-check if needed.
 
     setState(() {
       loading = false;
       verifying = true;
     });
 
-    verifyMac(deviceName, mac);  // Pass deviceName and mac to verifyMac
+    verifyMac(name, macRaw);
   }
 
-  void verifyMac(String deviceName, String mac) {
-    DatabaseReference ref = FirebaseDatabase.instance.ref('devices/$mac/sensorData/macAddress');  // Fixed path: sensorData/macAddress
+  // MAC VERIFICATION
+  void verifyMac(String deviceName, String macRaw) {
+    String safeMac = macRaw.replaceAll(":", "_");
+
+    DatabaseReference ref = FirebaseDatabase.instance
+        .ref("devices/$safeMac/sensorData/macAddress");
+
     bool verified = false;
-    StreamSubscription? subscription;
+    StreamSubscription? sub;
 
-    subscription = ref.onValue.listen((event) {
-      String rtDbMac = event.snapshot.value as String? ?? '';
-      if (rtDbMac == mac) {
-        verified = true;
-        subscription?.cancel();
+    sub = ref.onValue.listen((event) {
+      try {
+        final val = event.snapshot.value;
 
-        // Success: Now save to Firestore and navigate
-        _saveToFirestoreAndNavigate(deviceName, mac);
+        if (val == null) return; // no data yet
+
+        String rtdbMac = val.toString().toUpperCase();
+
+        // ⭐ RAW MAC comparison (correct)
+        if (rtdbMac == macRaw) {
+          verified = true;
+          sub?.cancel();
+          _saveAndNavigate(deviceName, safeMac);
+        }
+      } catch (e) {
+        debugPrint("Verification error: $e");
       }
     });
 
     Future.delayed(const Duration(seconds: 30), () {
       if (!verified) {
-        subscription?.cancel();
+        sub?.cancel();
         setState(() {
           verifying = false;
-          errorMessage = "MAC verification failed. Ensure ESP32 is online and sending data.";
+          errorMessage = "MAC verification failed. ESP32 not sending data.";
         });
       }
     });
   }
 
-  Future<void> _saveToFirestoreAndNavigate(String deviceName, String mac) async {
+  // SAVE TO FIRESTORE + NAVIGATE
+  Future<void> _saveAndNavigate(String name, String safeMac) async {
     try {
       await FirebaseFirestore.instance
-          .collection('users')
+          .collection("users")
           .doc(widget.userDocId)
           .collection("deviceInfo")
-          .doc(mac)
+          .doc(safeMac)
           .set({
-            'name': deviceName,
-            'mac': mac,
-            'createdAt': FieldValue.serverTimestamp(),
-          });
+        "name": name,
+        "mac": safeMac,
+        "createdAt": FieldValue.serverTimestamp(),
+      });
 
-      // Navigate to HomeScreen
+      // Save device ID to shared preferences for persistence
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('deviceId', safeMac);
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (context) => HomeScreen(
             userDocId: widget.userDocId,
-            deviceId: mac,
+            deviceId: safeMac,
           ),
         ),
       );
     } catch (e) {
       setState(() {
         verifying = false;
-        errorMessage = "Error saving device: $e";
+        errorMessage = "Failed to save device: $e";
       });
     }
   }
 
+  // UI
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black.withOpacity(0.85),
-      body: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              "Setup Device",
-              style: TextStyle(
-                fontSize: 28,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+      backgroundColor: Colors.white,
+      body: Stack(
+        children: [
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "Setup Device",
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1e1d50),
+                    ),
+                  ),
+                  const SizedBox(height: 30),
+
+                  TextField(
+                    controller: deviceNameController,
+                    decoration: _style("Device Name"),
+                  ),
+                  const SizedBox(height: 16),
+
+                  TextField(
+                    controller: macController,
+                    decoration: _style("Device MAC (AA:BB:CC:DD:EE:FF)"),
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (verifying)
+                    const Text("Verifying MAC with ESP32...",
+                        style: TextStyle(color: Colors.black87)),
+
+                  if (errorMessage.isNotEmpty)
+                    Text(errorMessage,
+                        style: const TextStyle(color: Colors.red)),
+
+                  const SizedBox(height: 20),
+
+                  ElevatedButton(
+                    onPressed: (loading || verifying) ? null : saveDevice,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1e1d50),
+                    ),
+                    child: loading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text("Save & Connect",
+                            style: TextStyle(
+                                color: Colors.white, fontSize: 18)),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 30),
+          ),
 
-            TextField(
-              controller: deviceNameController,
-              decoration: _inputStyle("Device Name"),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-
-            TextField(
-              controller: macController,
-              decoration: _inputStyle("Device MAC Address (e.g., AA:BB:CC:DD:EE:FF)"),
-              style: const TextStyle(color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-
-            if (verifying)
-              const Text("Verifying MAC with ESP32...", style: TextStyle(color: Colors.yellow)),
-            if (errorMessage.isNotEmpty)
-              Text(errorMessage, style: const TextStyle(color: Colors.redAccent)),
-
-            const SizedBox(height: 20),
-
-            ElevatedButton(
-              onPressed: (loading || verifying) ? null : saveDevice,
-              child: loading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text("Save & Connect"),
-            ),
-          ],
-        ),
+          const BackButtonWidget(),
+        ],
       ),
     );
   }
 
-  InputDecoration _inputStyle(String label) {
+  InputDecoration _style(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: Colors.white70),
-      enabledBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.white38),
+      labelStyle: const TextStyle(color: Color(0xFF1e1d50)),
+      enabledBorder: const UnderlineInputBorder(
+        borderSide: BorderSide(color: Color(0xFF1e1d50)),
       ),
-      focusedBorder: OutlineInputBorder(
-        borderSide: const BorderSide(color: Colors.greenAccent),
+      focusedBorder: const UnderlineInputBorder(
+        borderSide: BorderSide(color: Colors.blueAccent),
       ),
     );
   }
