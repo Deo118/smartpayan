@@ -30,7 +30,7 @@ serve(async (req) => {
       return jsonResponse({ error: notifErr.message }, 500);
     }
 
-    // Fetch tokens
+    // Fetch FCM tokens for this device
     const { data: tokens, error: tokenErr } = await supabase
       .from("device_tokens")
       .select("fcm_token")
@@ -46,10 +46,7 @@ serve(async (req) => {
       return jsonResponse({ success: true, message: "No registered tokens" });
     }
 
-    // Deduplicate tokens
     const uniqueTokens = [...new Set(tokens.map((t) => t.fcm_token))];
-
-    console.log("Unique tokens:", uniqueTokens);
 
     // Get OAuth access token
     const jwt = await createGoogleJwt();
@@ -72,34 +69,31 @@ serve(async (req) => {
     }
 
     const projectId = Deno.env.get("PROJECT_ID")!;
-    const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
+    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
 
-    // Send push for each token
+    // SEND PUSH (DATA ONLY)
     for (const token of uniqueTokens) {
       const payload = {
         message: {
           token,
-          notification: {
-            title,
-            body: message
-          },
           data: {
+            title,
+            message,       
             event_type,
             screen: "alerts"
           },
           android: {
             priority: "HIGH",
             notification: {
-              channel_id: "default_channel"
+              channel_id: "smartpayan_alerts_v2"
             }
           }
         }
       };
 
+      console.log("Sending to:", token);
 
-      console.log("Sending to token:", token);
-
-      const res = await fetch(url, {
+      const res = await fetch(fcmUrl, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
