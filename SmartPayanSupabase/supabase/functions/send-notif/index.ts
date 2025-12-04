@@ -7,6 +7,9 @@ import { encode } from "https://deno.land/std@0.177.0/encoding/base64.ts";
 serve(async (req) => {
   try {
     const body = await req.json();
+
+    console.log("SEND-NOTIF CALLED WITH BODY:", body);
+
     const { title, message, event_type, device_id } = body;
 
     if (!title || !message || !event_type || !device_id) {
@@ -18,11 +21,56 @@ serve(async (req) => {
       Deno.env.get("SERVICE_ROLE_KEY")!
     );
 
-    // Insert notification record
+    // FETCH DEVICE NAME
+    const { data: dev, error: devErr } = await supabase
+      .from("devices")
+      .select("name, device_id")
+      .eq("device_id", device_id)
+      .single();
+
+    if (devErr) console.error("Device lookup failed:", devErr);
+
+    const deviceName = dev?.name || dev?.device_id || device_id;
+
+    // Inject device name into message automatically
+    let finalMessage = message;
+
+    if (finalMessage.startsWith("Your device") &&
+        !finalMessage.includes(deviceName)) {
+      finalMessage = finalMessage.replace(
+        "Your device",
+        `Your device ${deviceName}`
+      );
+    }
+
+    // ICON MAPPING
+    let icon = "ic_stat_cloud"; // Default for retraction/bad conditions
+
+    if (event_type === "device_online") {
+      icon = "ic_stat_check_circle";
+    }
+    else if (event_type === "device_offline") {
+      icon = "ic_stat_wifi_off";
+    }
+    else if (event_type === "clothesline_state") {
+      const txt = finalMessage.toLowerCase();
+      if (txt.includes("extended")) {
+        icon = "ic_stat_wb_sunny";
+      } else if (txt.includes("low light")){
+        icon = "ic_stat_brightness_3";
+      } else {
+        icon = "ic_stat_cloud";
+      }
+    }
+
+
+    // INSERT NOTIFICATION INTO DATABASE
     const { error: notifErr } = await supabase.from("notifications").insert({
       title,
-      message,
+      message: finalMessage,
       event_type,
+      device_id,
+      icon,
     });
 
     if (notifErr) {
@@ -30,7 +78,7 @@ serve(async (req) => {
       return jsonResponse({ error: notifErr.message }, 500);
     }
 
-    // Fetch FCM tokens for this device
+    // FETCH FCM TOKENS FOR THIS DEVICE
     const { data: tokens, error: tokenErr } = await supabase
       .from("device_tokens")
       .select("fcm_token")
@@ -48,7 +96,7 @@ serve(async (req) => {
 
     const uniqueTokens = [...new Set(tokens.map((t) => t.fcm_token))];
 
-    // Get OAuth access token
+    // GET GOOGLE OAUTH ACCESS TOKEN FOR FCM
     const jwt = await createGoogleJwt();
 
     const oauthRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -71,21 +119,23 @@ serve(async (req) => {
     const projectId = Deno.env.get("PROJECT_ID")!;
     const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
 
-    // SEND PUSH (DATA ONLY)
+    // SEND PUSH TO ALL TOKENS
     for (const token of uniqueTokens) {
       const payload = {
         message: {
           token,
           data: {
             title,
-            message,       
+            message: finalMessage,
             event_type,
-            screen: "alerts"
+            screen: "alerts",
+            icon,
           },
           android: {
             priority: "HIGH",
             notification: {
-              channel_id: "smartpayan_alerts_v2"
+              channel_id: "smartpayan_alerts_v2",
+              icon: icon,
             }
           }
         }
@@ -106,17 +156,15 @@ serve(async (req) => {
       console.log("FCM Response:", await res.text());
     }
 
-    return jsonResponse({ success: true }, 200);
+    return jsonResponse({ success: true, icon }, 200);
+
   } catch (err) {
     console.error("Function error:", err);
     return jsonResponse({ error: String(err) }, 500);
   }
 });
 
-// ---------------------------------------------------
 // UTILITIES
-// ---------------------------------------------------
-
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,

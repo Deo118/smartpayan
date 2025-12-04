@@ -9,68 +9,43 @@ serve(async (_req: Request) => {
       Deno.env.get("SERVICE_ROLE_KEY")!
     );
 
-    // Fetch all devices
-    const { data: devices, error } = await supabase.from("devices").select("*");
+    const { data: devices, error } = await supabase
+      .from("devices")
+      .select("*");
+
     if (error) throw error;
 
     const now = new Date();
+    const offlineThreshold = 45 * 1000;
 
     for (const dev of devices ?? []) {
+
+      const deviceName = dev.name || dev.device_id;
       const lastSeen = new Date(dev.last_seen);
-      const diff = now.getTime() - lastSeen.getTime(); // ms
-      const offlineThreshold = 2 * 60 * 1000; // 2 minutes
+      const diff = now.getTime() - lastSeen.getTime();
 
-      let shouldGoOffline = diff > offlineThreshold;
-      let shouldComeOnline = diff <= offlineThreshold;
+      const shouldGoOffline = diff > offlineThreshold;
 
-      // === DEVICE GOES OFFLINE ===
       if (shouldGoOffline && dev.is_online === true) {
-        console.log(`Device ${dev.device_id} is now OFFLINE.`);
 
-        // Update row
+        console.log("CRON OFFLINE TRIGGERED:", {
+          device_id: dev.device_id,
+          device_name: deviceName,
+          last_seen: dev.last_seen,
+          diff_ms: diff
+        });
+
         await supabase
           .from("devices")
           .update({ is_online: false })
           .eq("device_id", dev.device_id);
 
-        // Insert into notifications table
-        await supabase.from("notifications").insert({
-          title: "Device Offline",
-          message: `Your device (${dev.device_id}) has stopped sending data.`,
-          event_type: "device_offline"
-        });
+        const offlineMessage = `Your device ${deviceName} has stopped sending data.`;
 
-        // Trigger push notification via send-notif
         await notifyFCM(
           "Device Offline",
-          `Your device (${dev.device_id}) has stopped sending data.`,
+          offlineMessage,
           "device_offline",
-          dev.device_id
-        );
-      }
-
-      // === DEVICE COMES ONLINE AGAIN ===
-      if (shouldComeOnline && dev.is_online === false) {
-        console.log(`Device ${dev.device_id} is now ONLINE.`);
-
-        // Update row
-        await supabase
-          .from("devices")
-          .update({ is_online: true })
-          .eq("device_id", dev.device_id);
-
-        // Insert into notifications table
-        await supabase.from("notifications").insert({
-          title: "Device Online",
-          message: `Your device (${dev.device_id}) is now back online.`,
-          event_type: "device_online"
-        });
-
-        // Trigger push notification
-        await notifyFCM(
-          "Device Online",
-          `Your device (${dev.device_id}) is now back online.`,
-          "device_online",
           dev.device_id
         );
       }
@@ -80,6 +55,7 @@ serve(async (_req: Request) => {
       status: 200,
       headers: { "Content-Type": "application/json" }
     });
+
   } catch (err) {
     console.error(err);
     return new Response(JSON.stringify({ error: String(err) }), {
@@ -89,14 +65,14 @@ serve(async (_req: Request) => {
   }
 });
 
-// Helper to call your send-notif function
 async function notifyFCM(title: string, message: string, event_type: string, device_id: string) {
   await fetch("https://dbwhtzoahlzgpiuhqvlv.supabase.co/functions/v1/send-notif", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${Deno.env.get("SERVICE_ROLE_KEY")!}`
+      "Authorization": `Bearer ${Deno.env.get("SERVICE_ROLE_KEY")!}`,
     },
     body: JSON.stringify({ title, message, event_type, device_id })
   });
 }
+
