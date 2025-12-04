@@ -5,7 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// Background engine
+// Background system
 import 'backgrounds/background_engine.dart';
 
 // Pages
@@ -18,12 +18,8 @@ import 'pages/create_account.dart';
 import 'pages/setup_device.dart';
 
 
-// ============================================================
 // LOCAL NOTIFICATION SYSTEM
-// ============================================================
-
-final FlutterLocalNotificationsPlugin localNotif =
-FlutterLocalNotificationsPlugin();
+final FlutterLocalNotificationsPlugin localNotif = FlutterLocalNotificationsPlugin();
 
 const AndroidNotificationChannel mainChannel = AndroidNotificationChannel(
   'smartpayan_alerts_v2',
@@ -33,16 +29,12 @@ const AndroidNotificationChannel mainChannel = AndroidNotificationChannel(
 );
 
 
-// ============================================================
 // BACKGROUND PUSH HANDLER
-// ============================================================
-
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
-  final androidPlugin =
-  localNotif.resolvePlatformSpecificImplementation<
+  final androidPlugin = localNotif.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
   await androidPlugin?.createNotificationChannel(mainChannel);
 
@@ -51,10 +43,10 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   final title = message.data['title']?.toString().trim() ?? "SmartPayan Alert";
   final body = message.data['message']?.toString().trim() ?? "";
 
-  // ICON FROM SUPABASE/FUNCTIONS
   final iconName = message.data['icon']?.toString().trim();
-  final androidIcon =
-  (iconName != null && iconName.isNotEmpty) ? iconName : '@mipmap/ic_launcher';
+  final androidIcon = (iconName != null && iconName.isNotEmpty)
+      ? iconName
+      : '@mipmap/ic_launcher';
 
   await localNotif.show(
     DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -62,9 +54,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     body,
     NotificationDetails(
       android: AndroidNotificationDetails(
-        'smartpayan_alerts_v2',
-        'SmartPayan Alerts',
-        channelDescription: 'Notifications for device events',
+        mainChannel.id,
+        mainChannel.name,
+        channelDescription: mainChannel.description,
         importance: Importance.high,
         priority: Priority.high,
         icon: androidIcon,
@@ -75,10 +67,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 
-// ============================================================
 // MAIN INIT
-// ============================================================
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
@@ -94,7 +83,7 @@ void main() async {
   await Supabase.initialize(
     url: 'https://dbwhtzoahlzgpiuhqvlv.supabase.co',
     anonKey:
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0.Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0.Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8',
   );
 
   // Request notif permission
@@ -108,22 +97,17 @@ void main() async {
   await localNotif.initialize(initSettings);
 
   // Ensure channel exists
-  final androidPlugin =
-  localNotif.resolvePlatformSpecificImplementation<
+  final androidPlugin = localNotif.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
   await androidPlugin?.createNotificationChannel(mainChannel);
 
-  // Background handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(const MyApp());
 }
 
 
-// ============================================================
-// APP ROOT
-// ============================================================
-
+// ROOT APP
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -137,8 +121,7 @@ class MyApp extends StatelessWidget {
         '/login': (_) => LoginPage(),
         '/create-account': (_) => CreateAccountPage(),
         '/setup-device': (context) {
-          final userDocId =
-          ModalRoute.of(context)!.settings.arguments as String;
+          final userDocId = ModalRoute.of(context)!.settings.arguments as String;
           return SetupDevicePage(userDocId: userDocId);
         },
       },
@@ -147,9 +130,10 @@ class MyApp extends StatelessWidget {
 }
 
 
-// ============================================================
-// HOME SCREEN
-// ============================================================
+
+// ===========================
+//       HOME SCREEN
+// ===========================
 
 class HomeScreen extends StatefulWidget {
   final String userDocId;
@@ -165,6 +149,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
@@ -178,16 +163,14 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isOnline = false;
   DatabaseReference? ref;
 
+
   @override
   void initState() {
     super.initState();
 
     final safeId = widget.deviceId.replaceAll(':', '_');
 
-    // ---------------------------
-    // REALTIME DATABASE LISTENER
-    // ---------------------------
-
+    // RTDB LISTENER
     ref = FirebaseDatabase.instance.ref("devices/$safeId/sensorData");
 
     ref!.onValue.listen((event) {
@@ -205,69 +188,57 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     });
 
-    // Register mobile device for notifications
     registerDeviceToken(safeId);
 
-    // ---------------------------
-    // FOREGROUND PUSH HANDLER
-    // ---------------------------
-
+    // FOREGROUND PUSH
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      if (message.data.isNotEmpty) {
-        final title = message.data['title'] ?? "SmartPayan Alert";
-        final body = message.data['message'] ?? "";
+      if (message.data.isEmpty) return;
 
-        // ICON for foreground notifications
-        final iconName = message.data['icon']?.toString().trim();
-        final androidIcon = (iconName != null && iconName.isNotEmpty)
-            ? iconName
-            : '@mipmap/ic_launcher';
+      final title = message.data['title'] ?? "SmartPayan Alert";
+      final body = message.data['message'] ?? "";
 
-        await localNotif.show(
-          DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          title,
-          body,
-          NotificationDetails(
-            android: AndroidNotificationDetails(
-              'smartpayan_alerts_v2',
-              'SmartPayan Alerts',
-              channelDescription: 'Notifications for device events',
-              importance: Importance.high,
-              priority: Priority.high,
-              icon: androidIcon,
-              groupKey: 'smartpayan_group',
-            ),
+      final iconName = message.data['icon']?.toString().trim();
+      final androidIcon =
+          (iconName != null && iconName.isNotEmpty)
+              ? iconName
+              : '@mipmap/ic_launcher';
+
+      await localNotif.show(
+        DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            mainChannel.id,
+            mainChannel.name,
+            channelDescription: mainChannel.description,
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: androidIcon,
+            groupKey: 'smartpayan_group',
           ),
-        );
-      }
+        ),
+      );
     });
   }
 
-
-  // ============================================================
-  // DEVICE TOKEN REGISTRATION (for Supabase push delivery)
-  // ============================================================
-
+  // DEVICE TOKEN REGISTRATION
   Future<void> registerDeviceToken(String safeDeviceId) async {
     final fcm = FirebaseMessaging.instance;
-
     final token = await fcm.getToken();
     if (token == null) return;
 
-    // Remove old tokens
     await Supabase.instance.client
         .from('device_tokens')
         .delete()
         .eq('device_id', safeDeviceId);
 
-    // Store new token
     await Supabase.instance.client.from("device_tokens").insert({
       "device_id": safeDeviceId,
       "fcm_token": token,
       "updated_at": DateTime.now().toIso8601String(),
     });
 
-    // Handle token refresh
     fcm.onTokenRefresh.listen((newToken) async {
       await Supabase.instance.client
           .from('device_tokens')
@@ -290,16 +261,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 
-  // ============================================================
-  // UI
-  // ============================================================
-
   @override
   Widget build(BuildContext context) {
     final pages = [
       DashboardPage(
         deviceId: widget.deviceId,
         sensorData: sensorData,
+        userId: widget.userDocId,
       ),
       const AlertsPage(),
       SettingsPage(deviceId: widget.deviceId, userDocId: widget.userDocId),
@@ -313,7 +281,14 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         appBar: AppBar(
-          title: const Text("SmartPayan"),
+          title: const Text(
+            "SmartPayan",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 24,
+            ),
+          ),
           backgroundColor: Colors.blueGrey.withOpacity(0.3),
         ),
         body: pages[_selectedIndex],
@@ -336,3 +311,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+

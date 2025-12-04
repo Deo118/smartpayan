@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
-import 'package:shared_preferences/shared_preferences.dart';  
+import 'package:shared_preferences/shared_preferences.dart';
 import '../widgets/back_button.dart';
 import '../main.dart';
 
@@ -24,7 +24,17 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   bool verifying = false;
   String errorMessage = "";
 
-  // SAVE BUTTON
+  // MAC pattern: AA:BB:CC:DD:EE:FF (hex uppercase)
+  final RegExp macRegex = RegExp(r'^[A-F0-9]{2}(:[A-F0-9]{2}){5}$');
+  static const int nameMaxLength = 20;
+
+  @override
+  void dispose() {
+    deviceNameController.dispose();
+    macController.dispose();
+    super.dispose();
+  }
+
   void saveDevice() {
     setState(() {
       loading = true;
@@ -34,10 +44,27 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
     String name = deviceNameController.text.trim();
     String macRaw = macController.text.trim().toUpperCase();
 
+    // Basic validation
     if (name.isEmpty || macRaw.isEmpty) {
       setState(() {
         loading = false;
         errorMessage = "Please fill in all fields.";
+      });
+      return;
+    }
+
+    if (name.length > nameMaxLength) {
+      setState(() {
+        loading = false;
+        errorMessage = "Device name must be $nameMaxLength characters or fewer.";
+      });
+      return;
+    }
+
+    if (!macRegex.hasMatch(macRaw)) {
+      setState(() {
+        loading = false;
+        errorMessage = "Invalid MAC format. Use AA:BB:CC:DD:EE:FF (hex + colons).";
       });
       return;
     }
@@ -50,50 +77,51 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
     verifyMac(name, macRaw);
   }
 
-  // MAC VERIFICATION
   void verifyMac(String deviceName, String macRaw) {
-    String safeMac = macRaw.replaceAll(":", "_");
-
-    DatabaseReference ref = FirebaseDatabase.instance
-        .ref("devices/$safeMac/sensorData/macAddress");
+    final String safeMac = macRaw.replaceAll(":", "_");
+    final DatabaseReference ref =
+        FirebaseDatabase.instance.ref("devices/$safeMac/sensorData/macAddress");
 
     bool verified = false;
-    StreamSubscription? sub;
+    StreamSubscription<DatabaseEvent>? sub;
 
     sub = ref.onValue.listen((event) {
       try {
         final val = event.snapshot.value;
-
-        if (val == null) return; // no data yet
+        if (val == null) return;
 
         String rtdbMac = val.toString().toUpperCase();
 
-        // ⭐ RAW MAC comparison (correct)
         if (rtdbMac == macRaw) {
           verified = true;
           sub?.cancel();
-          _saveAndNavigate(deviceName, safeMac);
+          _saveAndNavigate(deviceName, safeMac, macRaw);
         }
       } catch (e) {
-        debugPrint("Verification error: $e");
+        // ignore per-listener errors but keep verifying window
+        debugPrint("verifyMac listener error: $e");
       }
+    }, onError: (e) {
+      debugPrint("verifyMac subscription error: $e");
     });
 
+    // Timeout if not verified
     Future.delayed(const Duration(seconds: 30), () {
       if (!verified) {
         sub?.cancel();
-        setState(() {
-          verifying = false;
-          errorMessage = "MAC verification failed. ESP32 not sending data.";
-        });
+        if (mounted) {
+          setState(() {
+            verifying = false;
+            errorMessage = "MAC verification failed. ESP32 not sending data.";
+          });
+        }
       }
     });
   }
 
-  // SAVE TO FIRESTORE + NAVIGATE
-  Future<void> _saveAndNavigate(String name, String safeMac) async {
+  Future<void> _saveAndNavigate(String name, String safeMac, String macRaw) async {
     try {
-      // --- SAVE TO FIRESTORE (your existing user system) ---
+      // Save to Firestore (store both safe and original)
       await FirebaseFirestore.instance
           .collection("users")
           .doc(widget.userDocId)
@@ -102,41 +130,44 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
           .set({
         "name": name,
         "mac": safeMac,
+        "mac_original": macRaw,
         "createdAt": FieldValue.serverTimestamp(),
       });
 
-      // --- SAVE NAME TO SUPABASE (no assumptions about auth) ---
-      final supabase = Supabase.instance.client;
-
-      await supabase.from("devices").upsert({
+      // Save to Supabase (mac_address stored with colons)
+      await Supabase.instance.client.from("devices").upsert({
         "device_id": safeMac,
-        "mac_address": safeMac.replaceAll("_", ":"),  // restored MAC
-        "name": name,                                 // <-- the important part
+        "mac_address": macRaw,
+        "name": name,
       });
 
-      // --- SAVE LOCALLY ---
+      // Save locally per-device (option B)
       SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('deviceId', safeMac);
+      await prefs.setString('device_name_$safeMac', name);
+      await prefs.setString('device_mac_$safeMac', macRaw);
+      await prefs.setString('deviceId', safeMac); // keep last active
 
-      // --- GO TO HOME ---
+      // Navigate to Home (pass safeMac)
+      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => HomeScreen(
+          builder: (_) => HomeScreen(
             userDocId: widget.userDocId,
             deviceId: safeMac,
           ),
         ),
       );
     } catch (e) {
-      setState(() {
-        verifying = false;
-        errorMessage = "Failed to save device: $e";
-      });
+      if (mounted) {
+        setState(() {
+          verifying = false;
+          errorMessage = "Failed to save device: $e";
+        });
+      }
     }
   }
 
-  // UI
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -161,23 +192,26 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
 
                   TextField(
                     controller: deviceNameController,
+                    maxLength: nameMaxLength,
                     decoration: _style("Device Name"),
                   ),
                   const SizedBox(height: 16),
 
                   TextField(
                     controller: macController,
+                    textCapitalization: TextCapitalization.characters,
                     decoration: _style("Device MAC (AA:BB:CC:DD:EE:FF)"),
                   ),
                   const SizedBox(height: 16),
 
                   if (verifying)
-                    const Text("Verifying MAC with ESP32...",
-                        style: TextStyle(color: Colors.black87)),
+                    const Text("Verifying MAC with ESP32...", style: TextStyle(color: Colors.black87)),
 
                   if (errorMessage.isNotEmpty)
-                    Text(errorMessage,
-                        style: const TextStyle(color: Colors.red)),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(errorMessage, style: const TextStyle(color: Colors.red)),
+                    ),
 
                   const SizedBox(height: 20),
 
@@ -188,9 +222,7 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
                     ),
                     child: loading
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text("Save & Connect",
-                            style: TextStyle(
-                                color: Colors.white, fontSize: 18)),
+                        : const Text("Save & Connect", style: TextStyle(color: Colors.white, fontSize: 18)),
                   ),
                 ],
               ),
@@ -206,6 +238,7 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   InputDecoration _style(String label) {
     return InputDecoration(
       labelText: label,
+      counterText: "",
       labelStyle: const TextStyle(color: Color(0xFF1e1d50)),
       enabledBorder: const UnderlineInputBorder(
         borderSide: BorderSide(color: Color(0xFF1e1d50)),

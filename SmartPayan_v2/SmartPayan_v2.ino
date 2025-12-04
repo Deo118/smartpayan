@@ -51,6 +51,11 @@
   - Highly maintainable & production-ready IoT firmware structure
 */
 
+/*  
+  SmartPayan v4 — Full RTDB Sync + Supabase Integration + Heartbeat System
+  (Rewritten to add manual-control notifications + cause-specific auto notifications)
+*/
+
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <DHT.h>
@@ -72,10 +77,7 @@ const char* supabaseNotifUrl =
 const char* supabaseHeartbeatUrl =
   "https://dbwhtzoahlzgpiuhqvlv.supabase.co/functions/v1/heartbeat";
 
-const char* supabaseAnonKey =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-  "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0."
-  "Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8";
+const char* supabaseAnonKey ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0.Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8";
 
 // === PINS ===
 #define dhtPinVal 4
@@ -93,7 +95,7 @@ int rainThresholdVal = 2500;
 int sensorReadIntervalVal = 5000;
 int commandReadIntervalVal = 1000;
 int dataUpdateIntervalVal = 10000;
-int heartbeatIntervalVal = 30000;
+int heartbeatIntervalVal = 20000;
 int motorSpeedVal = 80;
 
 // notification cooldown (ms) - prevents repeated notifications within this window
@@ -132,6 +134,11 @@ unsigned long lastDataUpdateVal = 0;
 unsigned long lastCommandReadVal = 0;
 unsigned long lastHeartbeatVal = 0;
 unsigned long lastNotificationSentAt = 0;
+bool hasSentOnlineNotification = false;
+
+// === Manual action tracking ===
+bool manualActionTriggered = false;
+String manualActionType = ""; // "extend" or "retract"
 
 // -------------------------------------------------------
 void setup() {
@@ -191,6 +198,7 @@ void loop() {
     sendSensorDataVal();
   }
 
+  // Heartbeat 
   if (ms - lastHeartbeatVal >= (unsigned long)heartbeatIntervalVal) {
     lastHeartbeatVal = ms;
     sendHeartbeatVal();
@@ -215,7 +223,7 @@ void sendHeartbeatVal() {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + supabaseAnonKey);
 
-  String json = "{\"device_id\":\"" + deviceKeyVal + "\","
+  String json = "{\"device_id\":\"" + deviceKeyVal + "\"," 
                 "\"mac_address\":\"" + realMacVal + "\"}";
 
   int code = http.POST(json);
@@ -248,9 +256,9 @@ bool sendSupabaseNotification(String title, String message, String eventType) {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", String("Bearer ") + supabaseAnonKey);
 
-  String body = "{\"title\":\"" + title + "\","
-                "\"message\":\"" + message + "\","
-                "\"event_type\":\"" + eventType + "\","
+  String body = "{\"title\":\"" + title + "\"," 
+                "\"message\":\"" + message + "\"," 
+                "\"event_type\":\"" + eventType + "\"," 
                 "\"device_id\":\"" + deviceKeyVal + "\"}";
 
   int code = http.POST(body);
@@ -322,9 +330,20 @@ void readCommandsVal() {
     sliderValueVal = payload.substring(col + 1, end).toFloat();
   }
 
+  // MANUAL CONTROL HANDLING: mark manualActionTriggered when app requests change
   if (!autoModeVal) {
-    if (sliderValueVal <= 0.1f) retractVal();
-    else if (sliderValueVal >= 0.9f) extendVal();
+    // RETRACT (manual)
+    if (sliderValueVal <= 0.1f && currentStateVal != Retracted) {
+      manualActionTriggered = true;
+      manualActionType = "retract";
+      retractVal();
+    }
+    // EXTEND (manual)
+    else if (sliderValueVal >= 0.9f && currentStateVal != Extended) {
+      manualActionTriggered = true;
+      manualActionType = "extend";
+      extendVal();
+    }
   }
 }
 
@@ -348,6 +367,9 @@ void readRtdbStateVal() {
 
   // If app changed state manually, ESP follows (only when NOT auto)
   if (rtdbStateVal != currentStateVal && !autoModeVal) {
+    manualActionTriggered = true;
+    manualActionType = (rtdbStateVal == Extended ? "extend" : "retract");
+
     if (rtdbStateVal == Extended) extendVal();
     else retractVal();
   }
@@ -399,29 +421,75 @@ void stopMotorVal() {
 }
 
 // -------------------------------------------------------
+String getRetractCause() {
+  bool rain = rainDetectedVal;
+  bool lowLight = (lightLevelVal < 200);
+  bool highHumidity = (humidityVal > 85);
+
+  // Build cause description
+  String cause = "";
+
+  if (rain) {
+    cause += "Rain";
+  }
+  if (lowLight) {
+    if (cause.length() > 0) cause += " + ";
+    cause += "Low Light";
+  }
+  if (highHumidity) {
+    if (cause.length() > 0) cause += " + ";
+    cause += "High Humidity";
+  }
+
+  // Trim and format
+  cause.trim();
+
+  if (cause.length() == 0) cause = "Unknown Condition";
+  return cause;
+}
+
+// -------------------------------------------------------
 void updateStateVal() {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  // Only write to RTDB if state actually changed — avoids repeated PUTs
+  // Only write to RTDB if needed
   if (currentStateVal == previousStateForDb) {
-    // But still consider notification logic: if state hasn't been notified yet, notify
+
+    // Notification check (state didn't change but might not have been notified yet)
     if (currentStateVal != lastNotifiedState) {
-      // Respect cooldown
       unsigned long now = millis();
       if (now - lastNotificationSentAt >= notificationCooldownMs) {
-        if (currentStateVal == Extended) {
-          if (sendSupabaseNotification("Clothesline Update",
-                                      "Good weather detected. Clothesline extended.",
-                                      "clothesline_state")) {
+
+        // If a manual action triggered this state, prefer manual notification
+        if (manualActionTriggered) {
+          String title = "Manual Control Activated";
+          String message = (manualActionType == "extend")
+                             ? "User extended the clothesline manually via the app."
+                             : "User retracted the clothesline manually via the app.";
+
+          if (sendSupabaseNotification(title, message, "manual_control")) {
             lastNotifiedState = currentStateVal;
           }
+          // Reset manual flag irrespective of http success to avoid duplicate sends later
+          manualActionTriggered = false;
+          manualActionType = "";
         } else {
-          if (sendSupabaseNotification("Clothesline Update",
-                                      "Rain or low light detected. Clothesline retracted.",
-                                      "clothesline_state")) {
-            lastNotifiedState = currentStateVal;
+          // Automatic or unknown cause — send cause-specific
+          if (currentStateVal == Extended) {
+            if (sendSupabaseNotification("Clothesline Update",
+                                         "Good weather condition. Clothesline extended.",
+                                         "clothesline_state")) {
+              lastNotifiedState = currentStateVal;
+            }
+          } else {
+            String cause = getRetractCause();
+            String msg = cause + " detected. Clothesline retracted.";
+            if (sendSupabaseNotification("Clothesline Update", msg, "clothesline_state")) {
+              lastNotifiedState = currentStateVal;
+            }
           }
         }
+
       } else {
         Serial.println("[UpdateState] Notification suppressed by cooldown.");
       }
@@ -429,7 +497,7 @@ void updateStateVal() {
     return;
   }
 
-  // Write to RTDB
+  // Write to RTDB because state changed
   String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData/state.json";
 
   HTTPClient http;
@@ -443,22 +511,37 @@ void updateStateVal() {
   Serial.println(resp);
   http.end();
 
-  // update remembered state for DB
   previousStateForDb = currentStateVal;
 
-  // Only notify if the state actually changed relative to lastNotifiedState (prevents spam)
+  // Send logically accurate notifications after DB write (if needed)
   if (currentStateVal != lastNotifiedState) {
-    if (currentStateVal == Extended) {
-      if (sendSupabaseNotification("Clothesline Update",
-                                  "Good weather detected. Clothesline extended.",
-                                  "clothesline_state")) {
+
+    // Manual action notification takes precedence
+    if (manualActionTriggered) {
+      String title = "Manual Control Activated";
+      String message = (manualActionType == "extend")
+                         ? "User extended the clothesline manually via the app."
+                         : "User retracted the clothesline manually via the app.";
+
+      if (sendSupabaseNotification(title, message, "manual_control")) {
         lastNotifiedState = currentStateVal;
       }
+      manualActionTriggered = false;
+      manualActionType = "";
     } else {
-      if (sendSupabaseNotification("Clothesline Update",
-                                  "Rain or low light detected. Clothesline retracted.",
-                                  "clothesline_state")) {
-        lastNotifiedState = currentStateVal;
+      // Automatic cause-based notification
+      if (currentStateVal == Extended) {
+        if (sendSupabaseNotification("Clothesline Update",
+                                     "Good weather condition. Clothesline extended.",
+                                     "clothesline_state")) {
+          lastNotifiedState = currentStateVal;
+        }
+      } else {
+        String cause = getRetractCause();
+        String msg = cause + " detected. Clothesline retracted.";
+        if (sendSupabaseNotification("Clothesline Update", msg, "clothesline_state")) {
+          lastNotifiedState = currentStateVal;
+        }
       }
     }
   }
@@ -466,25 +549,45 @@ void updateStateVal() {
 
 // -------------------------------------------------------
 void sendSensorDataVal() {
-  if (WiFi.status() != WL_CONNECTED) return;
+  if (WiFi.status() != WL_CONNECTED) {
+    hasSentOnlineNotification = false;  // WiFi down = device is offline
+    return;
+  }
 
   String url = String(firebaseUrlVal) + deviceKeyVal + "/sensorData.json";
 
-  String json = "{\"macAddress\":\"" + realMacVal + "\","
-                "\"temperature\":" + String(tempVal, 1) + ","
-                "\"humidity\":" + String(humidityVal, 1) + ","
-                "\"lightLevel\":" + String(lightLevelVal, 1) + ","
-                "\"rain\":" + String(rainDetectedVal ? "true" : "false") + ","
+  String json = "{\"macAddress\":\"" + realMacVal + "\"," 
+                "\"temperature\":" + String(tempVal, 1) + "," 
+                "\"humidity\":" + String(humidityVal, 1) + "," 
+                "\"lightLevel\":" + String(lightLevelVal, 1) + "," 
+                "\"rain\":" + String(rainDetectedVal ? "true" : "false") + "," 
                 "\"state\":\"" + getStateStringVal(currentStateVal) + "\"}";
 
   HTTPClient http;
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
+
   int code = http.PUT(json);
   String resp = http.getString();
+  http.end();
+
   Serial.printf("[Sensor PUT] %d\n", code);
   Serial.println(resp);
-  http.end();
+
+  // ONLINE DETECTION LOGIC
+  if (code > 0 && code < 300) {   // RTDB write succeeded
+      if (!hasSentOnlineNotification) {
+          sendSupabaseNotification(
+              "Device Online",
+              "Your device is now back online.",
+              "device_online"
+          );
+          hasSentOnlineNotification = true;
+      }
+  } else {
+      // RTDB write failed → device considered offline
+      hasSentOnlineNotification = false;
+  }
 }
 
 // -------------------------------------------------------
