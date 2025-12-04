@@ -5,9 +5,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// Background engine & notifications
+// Background engine
 import 'backgrounds/background_engine.dart';
-import 'notifications/notifications.dart';
 
 // Pages
 import 'pages/dashboard_page.dart';
@@ -18,12 +17,13 @@ import 'pages/login_page.dart';
 import 'pages/create_account.dart';
 import 'pages/setup_device.dart';
 
-// -----------------------------------------------------------
-// LOCAL NOTIFICATION PLUGIN
-// -----------------------------------------------------------
+
+// ============================================================
+// LOCAL NOTIFICATION SYSTEM
+// ============================================================
 
 final FlutterLocalNotificationsPlugin localNotif =
-    FlutterLocalNotificationsPlugin();
+FlutterLocalNotificationsPlugin();
 
 const AndroidNotificationChannel mainChannel = AndroidNotificationChannel(
   'smartpayan_alerts_v2',
@@ -32,65 +32,58 @@ const AndroidNotificationChannel mainChannel = AndroidNotificationChannel(
   importance: Importance.high,
 );
 
-// ANDROID BACKGROUND HANDLING
+
+// ============================================================
+// BACKGROUND PUSH HANDLER
+// ============================================================
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 
-  // Ensure notification channel is ready
-  final androidPlugin = localNotif
-      .resolvePlatformSpecificImplementation<
+  final androidPlugin =
+  localNotif.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
   await androidPlugin?.createNotificationChannel(mainChannel);
 
-  print("[BG] Raw FCM message: ${message.data}");
+  if (!message.data.containsKey('event_type')) return;
 
-  if (!message.data.containsKey('event_type')) {
-    print("[BG] Ignoring non-SmartPayan FCM message");
-    return;
-  }
+  final title = message.data['title']?.toString().trim() ?? "SmartPayan Alert";
+  final body = message.data['message']?.toString().trim() ?? "";
 
-  // Extract real values
-  final title = message.data['title']?.toString().trim() ?? "";
-  final body  = message.data['message']?.toString().trim() ?? "";
-
-  // Extra safety: ignore malformed messages
-  if (title.isEmpty && body.isEmpty) {
-    print("[BG] Ignoring SmartPayan message with empty title/body");
-    return;
-  }
+  // ICON FROM SUPABASE/FUNCTIONS
+  final iconName = message.data['icon']?.toString().trim();
+  final androidIcon =
+  (iconName != null && iconName.isNotEmpty) ? iconName : '@mipmap/ic_launcher';
 
   await localNotif.show(
     DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    title.isEmpty ? "SmartPayan Alert" : title,
+    title,
     body,
-    const NotificationDetails(
+    NotificationDetails(
       android: AndroidNotificationDetails(
         'smartpayan_alerts_v2',
         'SmartPayan Alerts',
         channelDescription: 'Notifications for device events',
         importance: Importance.high,
         priority: Priority.high,
+        icon: androidIcon,
         groupKey: 'smartpayan_group',
-        setAsGroupSummary: false,
-        groupAlertBehavior: GroupAlertBehavior.all,
       ),
     ),
   );
 }
 
 
-
-
-// -----------------------------------------------------------
+// ============================================================
 // MAIN INIT
-// -----------------------------------------------------------
+// ============================================================
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
-  // === DISABLE AUTO-NOTIFICATIONS ===
+  // Disable Android auto-notifications (handled manually)
   await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
     alert: false,
     badge: false,
@@ -104,16 +97,17 @@ void main() async {
     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRid2h0em9haGx6Z3BpdWhxdmx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjQ0NzM5ODYsImV4cCI6MjA4MDA0OTk4Nn0.Ny81j8nYmPteq6apMqIsJAHaNT2erIkXPNBDe7UCvP8',
   );
 
-  // Notification permission
+  // Request notif permission
   await FirebaseMessaging.instance.requestPermission();
 
-  // Local Notification Initialization
+  // Init local notifications
   const initSettings = InitializationSettings(
     android: AndroidInitializationSettings('@mipmap/ic_launcher'),
   );
+
   await localNotif.initialize(initSettings);
 
-  // Create notification channel
+  // Ensure channel exists
   final androidPlugin =
   localNotif.resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>();
@@ -126,9 +120,9 @@ void main() async {
 }
 
 
-// -----------------------------------------------------------
-// MAIN APP WIDGET
-// -----------------------------------------------------------
+// ============================================================
+// APP ROOT
+// ============================================================
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -139,22 +133,23 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       initialRoute: '/init',
       routes: {
-        '/init': (context) => InitializationPage(),
-        '/login': (context) => LoginPage(),
-        '/create-account': (context) => CreateAccountPage(),
+        '/init': (_) => InitializationPage(),
+        '/login': (_) => LoginPage(),
+        '/create-account': (_) => CreateAccountPage(),
         '/setup-device': (context) {
           final userDocId =
-              ModalRoute.of(context)!.settings.arguments as String;
+          ModalRoute.of(context)!.settings.arguments as String;
           return SetupDevicePage(userDocId: userDocId);
-        }
+        },
       },
     );
   }
 }
 
-// -----------------------------------------------------------
+
+// ============================================================
 // HOME SCREEN
-// -----------------------------------------------------------
+// ============================================================
 
 class HomeScreen extends StatefulWidget {
   final String userDocId;
@@ -189,7 +184,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final safeId = widget.deviceId.replaceAll(':', '_');
 
-    // RTDB listener
+    // ---------------------------
+    // REALTIME DATABASE LISTENER
+    // ---------------------------
+
     ref = FirebaseDatabase.instance.ref("devices/$safeId/sensorData");
 
     ref!.onValue.listen((event) {
@@ -207,14 +205,23 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     });
 
-    // Register this device's FCM token
+    // Register mobile device for notifications
     registerDeviceToken(safeId);
 
-    // FOREGROUND PUSH NOTIFICATIONS
+    // ---------------------------
+    // FOREGROUND PUSH HANDLER
+    // ---------------------------
+
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       if (message.data.isNotEmpty) {
         final title = message.data['title'] ?? "SmartPayan Alert";
-        final body  = message.data['message'] ?? "";  // <-- FIXED KEY NAME
+        final body = message.data['message'] ?? "";
+
+        // ICON for foreground notifications
+        final iconName = message.data['icon']?.toString().trim();
+        final androidIcon = (iconName != null && iconName.isNotEmpty)
+            ? iconName
+            : '@mipmap/ic_launcher';
 
         await localNotif.show(
           DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -227,9 +234,8 @@ class _HomeScreenState extends State<HomeScreen> {
               channelDescription: 'Notifications for device events',
               importance: Importance.high,
               priority: Priority.high,
+              icon: androidIcon,
               groupKey: 'smartpayan_group',
-              setAsGroupSummary: false,
-              groupAlertBehavior: GroupAlertBehavior.all,
             ),
           ),
         );
@@ -237,41 +243,37 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // -----------------------------------------------------------
-  // TOKEN REGISTRATION (corrected)
-  // -----------------------------------------------------------
+
+  // ============================================================
+  // DEVICE TOKEN REGISTRATION (for Supabase push delivery)
+  // ============================================================
 
   Future<void> registerDeviceToken(String safeDeviceId) async {
     final fcm = FirebaseMessaging.instance;
 
-    // 1 — Get token
     final token = await fcm.getToken();
     if (token == null) return;
 
-    print("FCM Token Now: $token");
-
-    // 2 — Clear previous tokens for this device
+    // Remove old tokens
     await Supabase.instance.client
         .from('device_tokens')
         .delete()
         .eq('device_id', safeDeviceId);
 
-    // 3 — Insert new fresh token
+    // Store new token
     await Supabase.instance.client.from("device_tokens").insert({
       "device_id": safeDeviceId,
       "fcm_token": token,
       "updated_at": DateTime.now().toIso8601String(),
     });
 
-    // 4 — Listen for token refresh
+    // Handle token refresh
     fcm.onTokenRefresh.listen((newToken) async {
-      // Wipe old tokens again
       await Supabase.instance.client
           .from('device_tokens')
           .delete()
           .eq('device_id', safeDeviceId);
 
-      // Insert new
       await Supabase.instance.client.from("device_tokens").insert({
         "device_id": safeDeviceId,
         "fcm_token": newToken,
@@ -280,11 +282,17 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+
   @override
   void dispose() {
     ref?.onValue.drain();
     super.dispose();
   }
+
+
+  // ============================================================
+  // UI
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {

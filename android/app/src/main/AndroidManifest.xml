@@ -4,7 +4,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="smartpayan"
+        android:label="SmartPayan"
         android:icon="@mipmap/ic_launcher">
 
         <!-- IMPORTANT: prevent system-generated phantom FCM notifications -->
@@ -19,7 +19,7 @@
 
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
-            android:resource="@mipmap/ic_launcher" />
+            android:resource="@mipmap/ic_stat_dry_cleaning" />
 
         <service
             android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"

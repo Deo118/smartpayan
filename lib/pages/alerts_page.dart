@@ -27,6 +27,23 @@ class _AlertsPageState extends State<AlertsPage> {
     setupRealtimeSubscription();
   }
 
+  // ---------------- ICON LOADER -------------------
+  Widget buildAlertIcon(String? iconName) {
+    if (iconName == null || iconName.isEmpty) {
+      return const Icon(Icons.notifications, color: Colors.white, size: 28);
+    }
+
+    return Image.asset(
+      'assets/icons/$iconName.png',
+      width: 28,
+      height: 28,
+      fit: BoxFit.contain,
+      errorBuilder: (context, error, stackTrace) =>
+      const Icon(Icons.notifications, color: Colors.white, size: 28),
+    );
+  }
+  // -------------------------------------------------
+
   Future<void> loadDeletePreference() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -123,7 +140,8 @@ class _AlertsPageState extends State<AlertsPage> {
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text("Delete", style: TextStyle(color: Colors.red)),
+                    child:
+                    const Text("Delete", style: TextStyle(color: Colors.red)),
                   ),
                 ],
               );
@@ -179,7 +197,8 @@ class _AlertsPageState extends State<AlertsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            child:
+            const Text("Delete", style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -204,7 +223,6 @@ class _AlertsPageState extends State<AlertsPage> {
     }
   }
 
-  // ✅ FIXED FORMATTER — ALWAYS CORRECT PH TIME (UTC+8)
   String formatLocalTime(String timestamp) {
     try {
       final dtUtc = DateTime.parse(timestamp).toUtc();
@@ -247,31 +265,37 @@ class _AlertsPageState extends State<AlertsPage> {
                     onRefresh: fetchAlerts,
                     child: isLoading
                         ? const Center(
-                        child: CircularProgressIndicator(color: Colors.white))
+                        child: CircularProgressIndicator(
+                            color: Colors.white))
                         : ListView.builder(
                       padding: const EdgeInsets.all(16),
                       itemCount: alerts.length,
                       itemBuilder: (context, index) {
                         final alert = alerts[index];
-                        final time = formatLocalTime(alert['created_at'] ?? "");
+                        final time =
+                        formatLocalTime(alert['created_at'] ?? "");
 
                         return Dismissible(
                           key: Key(alert['id'].toString()),
                           direction: DismissDirection.endToStart,
-                          onDismissed: (_) => deleteOne(alert['id'], index),
+                          onDismissed: (_) =>
+                              deleteOne(alert['id'], index),
                           background: Container(
                             alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20),
                             decoration: BoxDecoration(
                               color: Colors.red.withOpacity(0.7),
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            child: const Icon(Icons.delete, color: Colors.white),
+                            child: const Icon(Icons.delete,
+                                color: Colors.white),
                           ),
                           child: _alertCard(
                             mode: mode,
                             msg: alert['message'],
                             time: time,
+                            iconName: alert['icon'] as String?,
                           ),
                         );
                       },
@@ -302,7 +326,8 @@ class _AlertsPageState extends State<AlertsPage> {
           ),
           IconButton(
             onPressed: deleteAllAlerts,
-            icon: const Icon(Icons.delete_sweep, color: Colors.white, size: 30),
+            icon: const Icon(Icons.delete_sweep,
+                color: Colors.white, size: 30),
             tooltip: "Delete all alerts",
           ),
         ],
@@ -314,6 +339,7 @@ class _AlertsPageState extends State<AlertsPage> {
     required BackgroundMode mode,
     required String msg,
     required String time,
+    required String? iconName,
   }) {
     Color cardColor;
     switch (mode) {
@@ -337,7 +363,7 @@ class _AlertsPageState extends State<AlertsPage> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.notifications, color: Colors.white, size: 28),
+          buildAlertIcon(iconName),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -347,7 +373,8 @@ class _AlertsPageState extends State<AlertsPage> {
           ),
           Text(
             time,
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
+            style:
+            const TextStyle(color: Colors.white70, fontSize: 12),
           ),
         ],
       ),

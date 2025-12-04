@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';  
 import '../widgets/back_button.dart';
@@ -92,6 +93,7 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   // SAVE TO FIRESTORE + NAVIGATE
   Future<void> _saveAndNavigate(String name, String safeMac) async {
     try {
+      // --- SAVE TO FIRESTORE (your existing user system) ---
       await FirebaseFirestore.instance
           .collection("users")
           .doc(widget.userDocId)
@@ -103,10 +105,20 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
         "createdAt": FieldValue.serverTimestamp(),
       });
 
-      // Save device ID to shared preferences for persistence
+      // --- SAVE NAME TO SUPABASE (no assumptions about auth) ---
+      final supabase = Supabase.instance.client;
+
+      await supabase.from("devices").upsert({
+        "device_id": safeMac,
+        "mac_address": safeMac.replaceAll("_", ":"),  // restored MAC
+        "name": name,                                 // <-- the important part
+      });
+
+      // --- SAVE LOCALLY ---
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString('deviceId', safeMac);
 
+      // --- GO TO HOME ---
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
