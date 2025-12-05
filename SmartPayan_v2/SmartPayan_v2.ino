@@ -81,8 +81,8 @@
 #include <BH1750.h>
 
 // === WIFI ===
-const char* wifiSsidVal = "Isonoe";
-const char* wifiPasswordVal = "Ang$arapne22";
+const char* wifiSsidVal = "ggs";
+const char* wifiPasswordVal = "12345678";
 
 // === FIREBASE RTDB ===
 const char* firebaseUrlVal =
@@ -111,12 +111,12 @@ const char* supabaseAnonKey =
 #define i2cSclVal 22
 
 // === CONSTANTS / TIMINGS ===
-int rainThresholdVal = 2500;
+int rainThresholdVal = 1000;
 int sensorReadIntervalVal = 5000;
 int commandReadIntervalVal = 1000;
 int dataUpdateIntervalVal = 10000;
 int heartbeatIntervalVal = 20000;
-int motorSpeedVal = 80;
+int motorSpeedVal = 200;
 
 // notification cooldown (ms) - prevents repeated notifications within this window
 const unsigned long notificationCooldownMs = 1000UL;
@@ -418,7 +418,7 @@ void extendVal() {
     digitalWrite(motorIn1Val, HIGH);
     digitalWrite(motorIn2Val, LOW);
     analogWrite(motorEnaVal, motorSpeedVal);
-    delay(1000);
+    delay(1500);
     stopMotorVal();
     currentStateVal = Extended;
     updateStateVal();
@@ -429,7 +429,7 @@ void retractVal() {
     digitalWrite(motorIn1Val, LOW);
     digitalWrite(motorIn2Val, HIGH);
     analogWrite(motorEnaVal, motorSpeedVal);
-    delay(1000);
+    delay(1500);
     stopMotorVal();
     currentStateVal = Retracted;
     updateStateVal();
