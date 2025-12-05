@@ -24,7 +24,6 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
   bool verifying = false;
   String errorMessage = "";
 
-  // MAC pattern: AA:BB:CC:DD:EE:FF (hex uppercase)
   final RegExp macRegex = RegExp(r'^[A-F0-9]{2}(:[A-F0-9]{2}){5}$');
   static const int nameMaxLength = 20;
 
@@ -41,10 +40,9 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
       errorMessage = "";
     });
 
-    String name = deviceNameController.text.trim();
-    String macRaw = macController.text.trim().toUpperCase();
+    final name = deviceNameController.text.trim();
+    final macRaw = macController.text.trim().toUpperCase();
 
-    // Basic validation
     if (name.isEmpty || macRaw.isEmpty) {
       setState(() {
         loading = false;
@@ -64,7 +62,7 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
     if (!macRegex.hasMatch(macRaw)) {
       setState(() {
         loading = false;
-        errorMessage = "Invalid MAC format. Use AA:BB:CC:DD:EE:FF (hex + colons).";
+        errorMessage = "Invalid MAC format. Use AA:BB:CC:DD:EE:FF.";
       });
       return;
     }
@@ -77,51 +75,72 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
     verifyMac(name, macRaw);
   }
 
+  // verify MAC with RTDB
   void verifyMac(String deviceName, String macRaw) {
-    final String safeMac = macRaw.replaceAll(":", "_");
-    final DatabaseReference ref =
-        FirebaseDatabase.instance.ref("devices/$safeMac/sensorData/macAddress");
+    final safeMac = macRaw.replaceAll(":", "_");
+    final ref = FirebaseDatabase.instance.ref("devices/$safeMac/sensorData/macAddress");
 
     bool verified = false;
-    StreamSubscription<DatabaseEvent>? sub;
+    StreamSubscription? sub;
 
-    sub = ref.onValue.listen((event) {
-      try {
-        final val = event.snapshot.value;
-        if (val == null) return;
+    sub = ref.onValue.listen((event) async {
+      final val = event.snapshot.value;
+      if (val == null) return;
 
-        String rtdbMac = val.toString().toUpperCase();
-
-        if (rtdbMac == macRaw) {
-          verified = true;
-          sub?.cancel();
-          _saveAndNavigate(deviceName, safeMac, macRaw);
-        }
-      } catch (e) {
-        // ignore per-listener errors but keep verifying window
-        debugPrint("verifyMac listener error: $e");
+      if (val.toString().toUpperCase() == macRaw) {
+        verified = true;
+        await sub?.cancel();
+        checkDeviceOwner(deviceName, safeMac, macRaw);
       }
-    }, onError: (e) {
-      debugPrint("verifyMac subscription error: $e");
     });
 
-    // Timeout if not verified
-    Future.delayed(const Duration(seconds: 30), () {
+    Future.delayed(const Duration(seconds: 30), () async {
       if (!verified) {
-        sub?.cancel();
+        await sub?.cancel();
         if (mounted) {
           setState(() {
             verifying = false;
-            errorMessage = "MAC verification failed. ESP32 not sending data.";
+            errorMessage = "MAC verification failed. ESP32 not broadcasting.";
           });
         }
       }
     });
   }
 
+  // check if device already has an owner
+  Future<void> checkDeviceOwner(String name, String safeMac, String macRaw) async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection("deviceOwners")
+          .doc(safeMac)
+          .get();
+
+      if (doc.exists) {
+        final owner = doc["userId"];
+        if (owner != widget.userDocId) {
+          setState(() {
+            verifying = false;
+            errorMessage = "This device is already registered to another user.";
+          });
+          return;
+        }
+      }
+
+      // If owner does not exist OR owner is same user → continue
+      _saveAndNavigate(name, safeMac, macRaw);
+
+    } catch (e) {
+      setState(() {
+        verifying = false;
+        errorMessage = "Error verifying device owner: $e";
+      });
+    }
+  }
+
+  // save ownership, deviceInfo, Supabase, cache
   Future<void> _saveAndNavigate(String name, String safeMac, String macRaw) async {
     try {
-      // Save to Firestore (store both safe and original)
+      // Save under user
       await FirebaseFirestore.instance
           .collection("users")
           .doc(widget.userDocId)
@@ -134,20 +153,31 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
         "createdAt": FieldValue.serverTimestamp(),
       });
 
-      // Save to Supabase (mac_address stored with colons)
+      // Save owner
+      await FirebaseFirestore.instance
+          .collection("deviceOwners")
+          .doc(safeMac)
+          .set({
+        "userId": widget.userDocId,
+        "deviceId": safeMac,
+        "mac_original": macRaw,
+        "createdAt": FieldValue.serverTimestamp(),
+      });
+
+      // Supabase
       await Supabase.instance.client.from("devices").upsert({
         "device_id": safeMac,
         "mac_address": macRaw,
         "name": name,
       });
 
-      // Save locally per-device (option B)
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      await prefs.setString('device_name_$safeMac', name);
-      await prefs.setString('device_mac_$safeMac', macRaw);
-      await prefs.setString('deviceId', safeMac); // keep last active
+      // Cache
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("device_name_$safeMac", name);
+      await prefs.setString("device_mac_$safeMac", macRaw);
+      await prefs.setString("deviceId", safeMac);
 
-      // Navigate to Home (pass safeMac)
+      // Navigate to home
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -158,13 +188,13 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
           ),
         ),
       );
+
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          verifying = false;
-          errorMessage = "Failed to save device: $e";
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        verifying = false;
+        errorMessage = "Failed to save device: $e";
+      });
     }
   }
 
@@ -178,7 +208,6 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 28),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
                     "Setup Device",
@@ -205,7 +234,8 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
                   const SizedBox(height: 16),
 
                   if (verifying)
-                    const Text("Verifying MAC with ESP32...", style: TextStyle(color: Colors.black87)),
+                    const Text("Verifying MAC with ESP32...",
+                        style: TextStyle(color: Colors.black87)),
 
                   if (errorMessage.isNotEmpty)
                     Padding(
@@ -222,7 +252,8 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
                     ),
                     child: loading
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text("Save & Connect", style: TextStyle(color: Colors.white, fontSize: 18)),
+                        : const Text("Save & Connect",
+                            style: TextStyle(color: Colors.white, fontSize: 18)),
                   ),
                 ],
               ),

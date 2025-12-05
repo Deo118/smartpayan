@@ -185,34 +185,45 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> deleteDevice() async {
-    final safeMac = widget.deviceId;
+  final safeMac = widget.deviceId;
 
-    try {
-      await FirebaseFirestore.instance
-          .collection("users")
-          .doc(widget.userDocId)
-          .collection("deviceInfo")
-          .doc(safeMac)
-          .delete();
+  try {
+    // Delete user-specific deviceInfo
+    await FirebaseFirestore.instance
+        .collection("users")
+        .doc(widget.userDocId)
+        .collection("deviceInfo")
+        .doc(safeMac)
+        .delete();
 
-      await Supabase.instance.client.from("device_tokens").delete().eq("device_id", safeMac);
-      await Supabase.instance.client.from("notifications").delete().eq("device_id", safeMac);
-      await Supabase.instance.client.from("devices").delete().eq("device_id", safeMac);
+    // Delete global device owner to free the ESP32 for another user
+    await FirebaseFirestore.instance
+        .collection("deviceOwners")
+        .doc(safeMac)
+        .delete();
 
-      await FirebaseDatabase.instance.ref("devices/$safeMac").remove();
+    // Delete Supabase rows
+    await Supabase.instance.client.from("device_tokens").delete().eq("device_id", safeMac);
+    await Supabase.instance.client.from("notifications").delete().eq("device_id", safeMac);
+    await Supabase.instance.client.from("devices").delete().eq("device_id", safeMac);
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_prefNameKey(safeMac));
-      await prefs.remove(_prefMacKey(safeMac));
-      await prefs.remove('deviceId');
+    // Delete RTDB node
+    await FirebaseDatabase.instance.ref("devices/$safeMac").remove();
 
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error deleting device: $e")),
-      );
-    }
+    // Clear local cache
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefNameKey(safeMac));
+    await prefs.remove(_prefMacKey(safeMac));
+    await prefs.remove('deviceId');
+
+    // Return to login
+    Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false);
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Error deleting device: $e")),
+    );
   }
+}
 
   void confirmDeleteDialog() {
     showDialog(
