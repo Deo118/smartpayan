@@ -24,12 +24,15 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   double sliderValue = 0.5;
-  bool isAuto = true;
+  bool isAuto = true; // Will be overridden by RTDB listener
   String? actionMessage;
 
   DatabaseReference? commandRef;
   DatabaseReference? sensorDataRef;
+
   StreamSubscription<DatabaseEvent>? sensorListener;
+  StreamSubscription<DatabaseEvent>? autoModeListener;
+  StreamSubscription<DatabaseEvent>? positionListener;
 
   bool isOnline = true;
   DateTime? lastUpdateTime;
@@ -52,6 +55,7 @@ class _DashboardPageState extends State<DashboardPage> {
     sensorDataRef =
         FirebaseDatabase.instance.ref("devices/$safeDeviceId/sensorData");
 
+    // 🔥 Listen to sensor updates (for online/offline detection)
     sensorListener = sensorDataRef!.onValue.listen((event) {
       if (event.snapshot.value == null) return;
 
@@ -71,6 +75,33 @@ class _DashboardPageState extends State<DashboardPage> {
       });
     });
 
+    // 🔥 LISTEN FOR autoMode CHANGES (UI always matches RTDB)
+    autoModeListener =
+        commandRef!.child("autoMode").onValue.listen((event) {
+      final value = event.snapshot.value;
+      if (value is bool) {
+        setState(() {
+          isAuto = value;
+          if (isAuto) {
+            actionMessage = null; // when switching back to auto
+          }
+        });
+      }
+    });
+
+    // 🔥 LISTEN FOR clotheslinePosition CHANGES IN MANUAL MODE
+    positionListener =
+        commandRef!.child("clotheslinePosition").onValue.listen((event) {
+      final value = event.snapshot.value;
+
+      if (value is double && !isAuto) {
+        setState(() {
+          sliderValue = value;
+        });
+      }
+    });
+
+    // offline detection
     offlineTimer =
         Timer.periodic(const Duration(seconds: 5), (_) => _checkOffline());
   }
@@ -78,6 +109,8 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void dispose() {
     sensorListener?.cancel();
+    autoModeListener?.cancel();
+    positionListener?.cancel();
     offlineTimer?.cancel();
     super.dispose();
   }
@@ -128,7 +161,6 @@ class _DashboardPageState extends State<DashboardPage> {
     if (lastUpdateTime == null) return;
 
     final diff = DateTime.now().difference(lastUpdateTime!);
-
     if (diff.inSeconds > offlineThresholdSec && isOnline) {
       sendSupabaseNotif(
         "Device Offline",
@@ -136,7 +168,6 @@ class _DashboardPageState extends State<DashboardPage> {
         "offline",
         widget.deviceId.replaceAll(':', '_'),
       );
-
       setState(() => isOnline = false);
     }
   }
@@ -166,7 +197,8 @@ class _DashboardPageState extends State<DashboardPage> {
       actionMessage = null;
     }
 
-    if (currentState == (sliderValue == 1 ? "extended" : "retracted")) {
+    if (currentState ==
+        (sliderValue == 1 ? "extended" : "retracted")) {
       actionMessage = null;
     }
 
@@ -176,6 +208,7 @@ class _DashboardPageState extends State<DashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // TITLE + ONLINE DOT
             Row(
               children: [
                 Text(
@@ -206,6 +239,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
             const SizedBox(height: 20),
 
+            // WEATHER + AUTO/MANUAL SWITCH
             _glassCard(
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -216,14 +250,16 @@ class _DashboardPageState extends State<DashboardPage> {
                     value: rain ? "Detected" : "None",
                     color: rain ? Colors.red : Colors.greenAccent,
                   ),
+
                   Row(
                     children: [
                       IconButton(
                         icon: const Icon(Icons.settings,
                             color: Colors.white, size: 32),
                         onPressed: () {
-                          setState(() => isAuto = !isAuto);
-                          sendCommand("autoMode", isAuto);
+                          final newMode = !isAuto;
+                          sendCommand("autoMode", newMode);
+                          setState(() => isAuto = newMode);
                         },
                       ),
                       Text(
@@ -241,6 +277,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
             const SizedBox(height: 18),
 
+            // SENSOR STATS
             _glassCard(
               child: Column(
                 children: [
@@ -264,20 +301,23 @@ class _DashboardPageState extends State<DashboardPage> {
 
             const SizedBox(height: 18),
 
+            // CLOTHESLINE CONTROL BLOCK
             _glassCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // HEADER ROW
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text("Clothesline Position",
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 16)),
+                          style: TextStyle(
+                              color: Colors.white70, fontSize: 16)),
                       InkWell(
                         onTap: () {
-                          setState(() => isAuto = !isAuto);
-                          sendCommand("autoMode", isAuto);
+                          final newMode = !isAuto;
+                          sendCommand("autoMode", newMode);
+                          setState(() => isAuto = newMode);
                         },
                         child: Container(
                           padding: const EdgeInsets.symmetric(
@@ -295,6 +335,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     ],
                   ),
 
+                  // SLIDER
                   Slider(
                     value: sliderValue,
                     divisions: 1,
@@ -326,7 +367,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     ],
                   ),
 
-                  // ✔ FIXED: Center the message
+                  // ACTION MESSAGE
                   if (actionMessage != null)
                     Center(
                       child: Container(
