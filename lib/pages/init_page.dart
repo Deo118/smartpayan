@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'package:shared_preferences/shared_preferences.dart';  
-import 'package:smartpayan/main.dart';  
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smartpayan/main.dart';
 
 class InitializationPage extends StatefulWidget {
   const InitializationPage({super.key});
@@ -11,31 +11,44 @@ class InitializationPage extends StatefulWidget {
 }
 
 class _InitializationPageState extends State<InitializationPage> {
+  bool _navigated = false; // Prevent double navigation
+
   @override
   void initState() {
     super.initState();
-    _checkLoginStatus();
+    _initialize();
   }
 
-  Future<void> _checkLoginStatus() async {
+  Future<void> _initialize() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    String? userDocId = prefs.getString('userDocId');
-    String? deviceId = prefs.getString('deviceId');
 
-    // Simulate loading delay (keep or adjust)
-    await Future.delayed(const Duration(seconds: 3));
+    final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    final String? userDocId = prefs.getString('userDocId');
+    final String? rawDeviceId = prefs.getString('deviceId');
+
+    // Sanitize device ID (ensure match with ESP32 + Supabase)
+    final String? deviceId =
+        rawDeviceId?.replaceAll(":", "_").trim().isNotEmpty == true
+            ? rawDeviceId!.replaceAll(":", "_")
+            : null;
+
+    // Add short delay for splash animation / background initialization
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted || _navigated) return;
 
     if (isLoggedIn && userDocId != null && deviceId != null) {
-      // User is logged in and has a device: Go to dashboard
+      _navigated = true;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => HomeScreen(userDocId: userDocId, deviceId: deviceId),
+          builder: (_) =>
+              HomeScreen(userDocId: userDocId, deviceId: deviceId),
         ),
       );
     } else {
-      // Not logged in: Go to login
+      // No credentials → go to login
+      _navigated = true;
       Navigator.pushReplacementNamed(context, '/login');
     }
   }
@@ -45,7 +58,9 @@ class _InitializationPageState extends State<InitializationPage> {
     return const Scaffold(
       backgroundColor: Colors.white,
       body: Center(
-        child: CircularProgressIndicator(color: Color(0xFF1e1d50)),
+        child: CircularProgressIndicator(
+          color: Color(0xFF1e1d50),
+        ),
       ),
     );
   }
