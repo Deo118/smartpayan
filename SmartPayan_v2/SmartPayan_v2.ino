@@ -63,8 +63,8 @@
 #include <BH1750.h>
 
 // === WIFI ===
-const char* wifiSsidVal = "PLDTHOMEFIBRGcfn2";
-const char* wifiPasswordVal = "PLDTWIFIDizon12162404";
+const char* wifiSsidVal = "Isonoe";
+const char* wifiPasswordVal = "Ang$arapne22";
 
 // === FIREBASE RTDB ===
 const char* firebaseUrlVal =

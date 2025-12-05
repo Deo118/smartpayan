@@ -35,6 +35,23 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
     super.dispose();
   }
 
+  // CHECK IF DEVICE IS ALREADY OWNED BY ANOTHER USER
+  Future<bool> deviceAlreadyOwned(String safeMac) async {
+    final doc = await FirebaseFirestore.instance
+        .collection("deviceOwners")
+        .doc(safeMac)
+        .get();
+
+    if (!doc.exists) return false; // nobody owns it yet
+
+    final ownerId = doc.data()?["ownerId"];
+    if (ownerId == widget.userDocId) return false; // same user → allow
+
+    return true; // owned by someone else
+  }
+
+  // ---------------------------------------------------------------------------
+
   void saveDevice() {
     setState(() {
       loading = true;
@@ -69,13 +86,31 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
       return;
     }
 
-    setState(() {
-      loading = false;
-      verifying = true;
-    });
+    final safeMac = macRaw.replaceAll(":", "_");
 
-    verifyMac(name, macRaw);
+    // Prevent duplicate device registration across accounts
+    deviceAlreadyOwned(safeMac).then((owned) {
+      if (owned) {
+        setState(() {
+          loading = false;
+          verifying = false;
+          errorMessage =
+              "This ESP32 is already registered to another SmartPayan account.";
+        });
+        return;
+      }
+
+      // If not owned → proceed with normal MAC verification
+      setState(() {
+        loading = false;
+        verifying = true;
+      });
+
+      verifyMac(name, macRaw);
+    });
   }
+
+  // ---------------------------------------------------------------------------
 
   void verifyMac(String deviceName, String macRaw) {
     final String safeMac = macRaw.replaceAll(":", "_");
@@ -98,14 +133,13 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
           _saveAndNavigate(deviceName, safeMac, macRaw);
         }
       } catch (e) {
-        // ignore per-listener errors but keep verifying window
         debugPrint("verifyMac listener error: $e");
       }
     }, onError: (e) {
       debugPrint("verifyMac subscription error: $e");
     });
 
-    // Timeout if not verified
+    // Timeout after 30 sec
     Future.delayed(const Duration(seconds: 30), () {
       if (!verified) {
         sub?.cancel();
@@ -119,9 +153,11 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
     });
   }
 
+  // ---------------------------------------------------------------------------
+
   Future<void> _saveAndNavigate(String name, String safeMac, String macRaw) async {
     try {
-      // Save to Firestore (store both safe and original)
+      // Save to Firestore inside user's collection
       await FirebaseFirestore.instance
           .collection("users")
           .doc(widget.userDocId)
@@ -134,21 +170,32 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
         "createdAt": FieldValue.serverTimestamp(),
       });
 
-      // Save to Supabase (mac_address stored with colons)
+      // Save to Supabase (optional metadata, not ownership)
       await Supabase.instance.client.from("devices").upsert({
         "device_id": safeMac,
         "mac_address": macRaw,
         "name": name,
       });
 
-      // Save locally per-device (option B)
+
+      // REGISTER DEVICE OWNERSHIP GLOBALLY IN FIRESTORE
+      await FirebaseFirestore.instance
+          .collection("deviceOwners")
+          .doc(safeMac)
+          .set({
+        "ownerId": widget.userDocId,
+        "mac_original": macRaw,
+        "createdAt": FieldValue.serverTimestamp(),
+      });
+
+      // Save locally
       SharedPreferences prefs = await SharedPreferences.getInstance();
       await prefs.setString('device_name_$safeMac', name);
       await prefs.setString('device_mac_$safeMac', macRaw);
-      await prefs.setString('deviceId', safeMac); // keep last active
+      await prefs.setString('deviceId', safeMac);
 
-      // Navigate to Home (pass safeMac)
       if (!mounted) return;
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -167,6 +214,8 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
       }
     }
   }
+
+  // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -205,12 +254,16 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
                   const SizedBox(height: 16),
 
                   if (verifying)
-                    const Text("Verifying MAC with ESP32...", style: TextStyle(color: Colors.black87)),
+                    const Text(
+                      "Verifying MAC with ESP32...",
+                      style: TextStyle(color: Colors.black87),
+                    ),
 
                   if (errorMessage.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
-                      child: Text(errorMessage, style: const TextStyle(color: Colors.red)),
+                      child:
+                          Text(errorMessage, style: const TextStyle(color: Colors.red)),
                     ),
 
                   const SizedBox(height: 20),
@@ -222,7 +275,8 @@ class _SetupDevicePageState extends State<SetupDevicePage> {
                     ),
                     child: loading
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text("Save & Connect", style: TextStyle(color: Colors.white, fontSize: 18)),
+                        : const Text("Save & Connect",
+                            style: TextStyle(color: Colors.white, fontSize: 18)),
                   ),
                 ],
               ),
