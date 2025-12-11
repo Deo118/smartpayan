@@ -111,12 +111,12 @@ const char* supabaseAnonKey =
 #define i2cSclVal 22
 
 // === CONSTANTS / TIMINGS ===
-int rainThresholdVal = 1000;
+int rainThresholdVal = 3200;
 int sensorReadIntervalVal = 5000;
 int commandReadIntervalVal = 1000;
 int dataUpdateIntervalVal = 10000;
 int heartbeatIntervalVal = 20000;
-int motorSpeedVal = 200;
+int motorSpeedVal = 220;
 
 // notification cooldown (ms) - prevents repeated notifications within this window
 const unsigned long notificationCooldownMs = 1000UL;
@@ -316,7 +316,7 @@ void readSensorVals() {
     int d = digitalRead(rainDigitalPinVal);
 
     bool prev = rainDetectedVal;
-    rainDetectedVal = (a < rainThresholdVal) || (d == LOW);
+    rainDetectedVal = (a < rainThresholdVal);
 
     // If rain starts, send immediate sensor update + notify if state changes
     if (rainDetectedVal && !prev) {
@@ -418,7 +418,7 @@ void extendVal() {
     digitalWrite(motorIn1Val, HIGH);
     digitalWrite(motorIn2Val, LOW);
     analogWrite(motorEnaVal, motorSpeedVal);
-    delay(1500);
+    delay(1000);
     stopMotorVal();
     currentStateVal = Extended;
     updateStateVal();
@@ -429,7 +429,7 @@ void retractVal() {
     digitalWrite(motorIn1Val, LOW);
     digitalWrite(motorIn2Val, HIGH);
     analogWrite(motorEnaVal, motorSpeedVal);
-    delay(1500);
+    delay(1000);
     stopMotorVal();
     currentStateVal = Retracted;
     updateStateVal();
