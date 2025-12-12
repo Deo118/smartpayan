@@ -66,10 +66,10 @@ class BackgroundEngine extends StatelessWidget {
       else if (hour < 18) mode = BackgroundMode.day;
       else mode = BackgroundMode.night;
     } else if (rain) {
-      mode = light < 200 ? BackgroundMode.night : BackgroundMode.rainy;
-    } else if (light < 200) {
+      mode = light < 50 ? BackgroundMode.night : BackgroundMode.rainy;
+    } else if (light < 50) {
       mode = BackgroundMode.night;
-    } else if (light < 500) {
+    } else if (light < 300) {
       mode = BackgroundMode.sunrise;
     } else if (humidity > 70) {
       mode = BackgroundMode.cloudy;
@@ -107,11 +107,11 @@ class BackgroundEngine extends StatelessWidget {
     }
 
     if (rain) {
-      return light < 200 ? "night.png" : "rainyday.png";
+      return light < 50 ? "night.png" : "rainyday.png";
     }
 
-    if (light < 200) return "night.png";
-    if (light < 500) return "sunrise.png";
+    if (light < 50) return "night.png";
+    if (light < 300) return "sunrise.png";
     if (humidity > 70) return "cloudy.png";
 
     return "day.png";
