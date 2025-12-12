@@ -404,7 +404,7 @@ void applyControlLogicVal() {
     bool shouldExtend = false;
 
     if (rainDetectedVal) shouldRetract = true;
-    else if (lightLevelVal < 200) shouldRetract = true;
+    else if (lightLevelVal < 50) shouldRetract = true;
     else if (humidityVal > 85) shouldRetract = true;
     else shouldExtend = true;
 
@@ -444,7 +444,7 @@ void stopMotorVal() {
 // -------------------------------------------------------
 String getRetractCause() {
     bool rain = rainDetectedVal;
-    bool lowLight = (lightLevelVal < 200);
+    bool lowLight = (lightLevelVal < 50);
     bool highHumidity = (humidityVal > 85);
 
     // Build cause description
